@@ -31,6 +31,15 @@ export function BottomSheet({
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  useEffect(() => {
     if (open) {
       const id = requestAnimationFrame(() => setVisible(true));
       return () => cancelAnimationFrame(id);
