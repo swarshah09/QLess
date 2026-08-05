@@ -1,0 +1,115 @@
+{
+  "theme": {
+    "app_name": "QLess",
+    "tagline": "Fuel Up. Wait Less.",
+    "colors": {
+      "primary": "#059669",
+      "background": {
+        "light": "#FFFFFF",
+        "dark": "#09090B"
+      },
+      "surface": {
+        "light": "#F9FAFB",
+        "dark": "#18181B"
+      },
+      "text": {
+        "light": "#111827",
+        "dark": "#F9FAFB"
+      },
+      "text_secondary": {
+        "light": "#4B5563",
+        "dark": "#A1A1AA"
+      },
+      "status": {
+        "live": "#10B981",
+        "recent": "#3B82F6",
+        "aging": "#F59E0B",
+        "stale": "#EF4444",
+        "available": "#10B981",
+        "low_supply": "#F59E0B",
+        "interrupted": "#EF4444",
+        "unavailable": "#9CA3AF",
+        "unknown": "#6B7280"
+      }
+    },
+    "typography": {
+      "headings": "Manrope, sans-serif",
+      "body": "Inter, sans-serif",
+      "rules": [
+        "Headings must use tight tracking (tracking-tight)",
+        "Overlines/Badges must be uppercase, tiny, wide spacing (tracking-[0.2em])",
+        "Body text minimum 16px for comfortable mobile reading",
+        "Hierarchy must rely on font weight and size, not color"
+      ]
+    }
+  },
+  "layout_and_grids": {
+    "desktop_container": "max-w-[420px] mx-auto h-screen border-x border-border shadow-2xl relative overflow-hidden flex flex-col bg-background",
+    "mobile_shell": "flex flex-col h-full flex-1 overflow-hidden",
+    "content_area": "flex-1 overflow-y-auto p-4 space-y-4 pb-20",
+    "bottom_nav": "h-16 border-t border-border flex justify-around items-center bg-background absolute bottom-0 w-full z-40",
+    "cards": "border border-border rounded-xl p-4 bg-card text-card-foreground shadow-sm flex flex-col gap-3",
+    "spacing": "Use tight, dense spacing for cards (gap-2, gap-3) to allow scanning. Generous padding (p-4) around main sections."
+  },
+  "components": {
+    "station_status_card": "Must display: availability status, queue range, estimated wait time, gas pressure (bar), last-updated freshness, confidence level. Use flat layouts without heavy cards where possible.",
+    "badges": "Flat colors, no gradients. Use bg-opacity-15 for background and solid color for text. e.g., bg-emerald-100 text-emerald-800. Dark mode: bg-emerald-900/30 text-emerald-400.",
+    "bottom_sheet": "Use Shadcn Drawer for 'Notify Me' alert builder and Navigation provider chooser. Must snap to bottom with a drag handle.",
+    "list_map_toggle": "Pill-shaped segmented control fixed near the bottom or top of the screen.",
+    "notify_me_builder": "Slider for queue/wait threshold, toggle for CNG availability, select for min pressure. Must use Shadcn form components customized to feel native.",
+    "data_freshness_indicators": "Small pulsating dot for LIVE, static dot for others. Text sizes text-xs font-medium.",
+    "navigation_bottom_sheet": "Grid of map providers (Google Maps, Waze, Apple Maps) for quick routing."
+  },
+  "visual_enhancers": {
+    "shadows": "Extremely minimal. shadow-sm for cards. shadow-lg for bottom sheets and modals only.",
+    "borders": "1px solid. Light mode: border-gray-200. Dark mode: border-gray-800. Sharp or subtly rounded (rounded-lg or rounded-xl maximum).",
+    "animations": "Subtle slide-up for bottom sheets. Fast opacity transitions. No bouncy/springy animations. Must respect prefers-reduced-motion."
+  },
+  "motion": {
+    "page_transitions": "None or extremely fast opacity fade (duration-150).",
+    "micro_interactions": "Tap states on cards and buttons must lower opacity slightly (active:opacity-80) or change background color (hover:bg-accent)."
+  },
+  "accessibility": {
+    "contrast": "Ensure all text meets 4.5:1. Primary button text must be readable against the primary color.",
+    "touch_targets": "Minimum 44x44px for all buttons, nav items, list items, and interactive elements.",
+    "test_ids": "All interactive elements MUST include data-testid attributes (e.g., data-testid='bottom-nav-home')."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1765272088009-100c96a4cd4e",
+        "description": "White electric car charging station with lush green wall (Use for generic eco-friendly station hero or landing page)",
+        "category": "landing_page_hero"
+      },
+      {
+        "url": "https://images.unsplash.com/reserve/pK02sCLwT3Op7AZBbdz6_msp_0701_6004.jpg",
+        "description": "Gasoline station during night time (Use for station details fallback image or dark mode)",
+        "category": "station_fallback"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1561602535-c6b696936c62",
+        "description": "Grey concrete empty road (Use for Empty States like 'No stations nearby', 'No active alerts', or 'Saved list empty')",
+        "category": "empty_state"
+      }
+    ],
+    "icons": "Use lucide-react. Keep stroke-width at 1.5 or 2 for clarity on mobile screens."
+  },
+  "instructions_to_main_agent": [
+    "You MUST build this strictly as a Mobile-First PWA UI. On desktop, wrap the entire app in a max-width 420px centered container (like a mobile simulator) with a border and shadow.",
+    "Use Tailwind CSS and Shadcn/UI for all styling and components.",
+    "Implement a 'Light, clean, minimal' design. Avoid excessive gradients, glassmorphism, or heavy shadows. Prioritize speed and trust.",
+    "Create a Bottom Navigation bar for the mobile shell (Home / Map / Alerts / Saved / Profile).",
+    "Use the Shadcn Drawer component extensively for bottom sheets (e.g., Notify Me alert builder, Navigation provider chooser).",
+    "Implement distinct Status Badges (AVAILABLE, LOW_SUPPLY, INTERRUPTED, UNAVAILABLE, UNKNOWN) and Data Freshness indicators (LIVE, RECENT, AGING, STALE).",
+    "Ensure dark mode is supported (toggled via a theme provider), keeping the high-contrast, minimal aesthetic.",
+    "The 'Notify Me' alert builder is the MOST IMPORTANT feature. Make it accessible, intuitive, and prominent."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not use generic centered layouts for text unless it is a hero section or empty state.",
+    "Do not apply universal transition (`transition: all`). Apply transitions explicitly.",
+    "Do not use placeholder image URLs (like via.placeholder.com). ONLY use the ones provided in `media.image_urls`.",
+    "Add `data-testid` to all interactive elements for testing.",
+    "Ensure the UI uses high-contrast colors to evoke trust and high scannability.",
+    "Prioritize optical alignment over strict geometrical alignment."
+  ]
+}
