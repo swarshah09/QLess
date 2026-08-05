@@ -1,0 +1,26 @@
+{
+  "name": "QLess — CNG Queue & Availability",
+  "short_name": "QLess",
+  "description": "Live CNG availability, queues and pressure near you. Know before you queue.",
+  "start_url": "/app/home",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#059669",
+  "categories": ["navigation", "utilities", "travel"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

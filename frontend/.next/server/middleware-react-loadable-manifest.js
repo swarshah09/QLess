@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST="{\"app/app/map/page.tsx -> @/features/maps/MockMap\":{\"id\":\"app/app/map/page.tsx -> @/features/maps/MockMap\",\"files\":[\"static/chunks/_app-pages-browser_src_features_maps_MockMap_tsx.js\"]}}"
