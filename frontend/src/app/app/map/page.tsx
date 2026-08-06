@@ -7,6 +7,7 @@ import { StationService } from '@/services/StationService';
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useSheets } from '@/hooks/SheetsContext';
+import { useLocation } from '@/hooks/LocationContext';
 
 // Lazy-load the map so its code isn't in the initial bundle.
 const MockMap = dynamic(
@@ -23,11 +24,12 @@ const MockMap = dynamic(
 
 export default function MapPage() {
   const { openNotify, openNavigate } = useSheets();
+  const { coords } = useLocation();
   const [stations, setStations] = useState<Station[] | null>(null);
 
   useEffect(() => {
-    StationService.getNearbyStations().then(setStations);
-  }, []);
+    StationService.getNearbyStations({ origin: coords ?? undefined }).then(setStations);
+  }, [coords]);
 
   return (
     <div className="map-screen" data-testid="map-page">

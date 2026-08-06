@@ -116,3 +116,34 @@ export type LocationState =
   | { status: 'loading' };
 
 export type NavProvider = 'google' | 'apple' | 'waze' | 'default';
+
+// ---- Discovery: sorting & filtering ----------------------------------------
+export type SortKey = 'nearest' | 'wait' | 'queue' | 'updated';
+
+export interface StationFilters {
+  availableOnly?: boolean;
+  maxQueue?: number; // upper bound of cars in queue
+  maxWaitMinutes?: number;
+  normalPressureOnly?: boolean;
+  maxDistanceKm?: number;
+}
+
+export interface NearbyQuery {
+  origin?: Coordinates;
+  filters?: StationFilters;
+  sort?: SortKey;
+}
+
+// ---- Community reports (kept generic for a future backend) -----------------
+// The backend will later add: user identity, GPS verification, reporter
+// reputation, confidence weighting and spam prevention.
+export interface StationReport {
+  id: string;
+  stationId: string;
+  queueRange: QueueRange;
+  availability: Availability;
+  pressureValue?: number | null;
+  verifiedNearby: boolean;
+  reportedAt: string;
+  source: 'community';
+}

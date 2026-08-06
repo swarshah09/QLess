@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Bell, MapPin, Navigation2 } from 'lucide-react';
+import { Bell, MapPin, Navigation2, Sparkles } from 'lucide-react';
 import type { Station } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -20,9 +20,10 @@ interface Props {
   station: Station;
   onNotify: (s: Station) => void;
   onNavigate: (s: Station) => void;
+  recommended?: boolean;
 }
 
-export function StationCard({ station, onNotify, onNavigate }: Props) {
+export function StationCard({ station, onNotify, onNavigate, recommended }: Props) {
   const stale = isStale(station.lastUpdated);
   return (
     <Card tappable className="station-card" data-testid={`station-card-${station.id}`}>
@@ -32,10 +33,19 @@ export function StationCard({ station, onNotify, onNavigate }: Props) {
         data-testid={`station-link-${station.id}`}
       >
         <div style={{ minWidth: 0 }}>
-          <div className="station-card__name">{station.name}</div>
+          <div className="station-card__name">
+            {station.name}
+            {recommended && (
+              <span className="reco-tag" data-testid={`recommended-${station.id}`}>
+                <Sparkles size={11} /> RECOMMENDED
+              </span>
+            )}
+          </div>
           <div className="station-card__meta">
             <MapPin size={14} />
-            {formatDistance(station.distanceKm)}
+            <strong style={{ color: 'var(--text)', fontWeight: 700 }}>
+              {formatDistance(station.distanceKm)}
+            </strong>
             <span aria-hidden>·</span>
             <span
               style={{

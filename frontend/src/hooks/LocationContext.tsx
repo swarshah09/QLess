@@ -1,13 +1,14 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { LocationService } from '@/services/LocationService';
-import type { LocationState } from '@/types';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { DEFAULT_COORDS, LocationService } from '@/services/LocationService';
+import type { Coordinates, LocationState } from '@/types';
 
 interface LocationCtx {
   location: LocationState;
+  coords: Coordinates | null; // reference point for distance sorting
   requestLocation: () => Promise<void>;
-  setManual: (label: string) => void;
+  setManual: (label: string, coords?: Coordinates) => void;
 }
 
 const Ctx = createContext<LocationCtx | null>(null);
@@ -24,7 +25,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
   const requestLocation = useCallback(async () => {
     setLocation({ status: 'loading' });
-    const result = await LocationService.getCurrentPosition();
+    const result = await LocationService.getCurrentLocation();
     if (result.status === 'granted') {
       setLocation({ status: 'granted', coords: result.coords, label: result.label });
     } else {
@@ -32,13 +33,19 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setManual = useCallback((label: string) => {
-    LocationService.setManualLocation(label, null);
-    setLocation({ status: 'manual', coords: null, label });
+  const setManual = useCallback((label: string, coords: Coordinates = DEFAULT_COORDS) => {
+    LocationService.setManualLocation(label, coords);
+    setLocation({ status: 'manual', coords, label });
   }, []);
 
+  const coords = useMemo<Coordinates | null>(() => {
+    if (location.status === 'granted') return location.coords;
+    if (location.status === 'manual') return location.coords;
+    return null;
+  }, [location]);
+
   return (
-    <Ctx.Provider value={{ location, requestLocation, setManual }}>
+    <Ctx.Provider value={{ location, coords, requestLocation, setManual }}>
       {children}
     </Ctx.Provider>
   );

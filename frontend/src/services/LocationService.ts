@@ -1,11 +1,12 @@
 import { MOCK_STATIONS } from '@/mocks';
 import { delay, readJSON, writeJSON } from '@/lib/storage';
+import { calculateDistance } from '@/lib/geo';
 import type { Coordinates } from '@/types';
 
 const KEY = 'qless.location.manual';
 
-// Default map center (Ahmedabad) used when no location is available.
-export const DEFAULT_COORDS: Coordinates = { lat: 23.0225, lng: 72.5714 };
+// Default reference point (Vastrapur, Ahmedabad) used when no location yet.
+export const DEFAULT_COORDS: Coordinates = { lat: 23.03, lng: 72.555 };
 
 export type LocationResult =
   | { status: 'granted'; coords: Coordinates; label: string }
@@ -14,6 +15,13 @@ export type LocationResult =
 
 // LocationService — wraps the browser Geolocation API and (mock) verification.
 export const LocationService = {
+  // Distance helper exposed on the service per the app's service contract.
+  calculateDistance,
+
+  async getCurrentLocation(): Promise<LocationResult> {
+    return this.getCurrentPosition();
+  },
+
   async getCurrentPosition(): Promise<LocationResult> {
     if (typeof navigator === 'undefined' || !navigator.geolocation)
       return { status: 'unsupported' };

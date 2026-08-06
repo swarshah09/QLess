@@ -28,8 +28,10 @@ import { RecommendationBanner } from '@/features/stations/RecommendationBanner';
 import { BetterOptions } from '@/features/stations/BetterOptions';
 import { ReportSheet } from '@/features/reports/ReportSheet';
 import { ImHereSheet } from '@/features/reports/ImHereSheet';
+import { ReportService } from '@/services/ReportService';
 import { useSheets } from '@/hooks/SheetsContext';
 import { useToast } from '@/hooks/ToastContext';
+import { useLocation } from '@/hooks/LocationContext';
 import {
   formatDistance,
   formatWait,
@@ -43,18 +45,25 @@ export default function StationDetailsPage() {
   const router = useRouter();
   const { openNotify, openNavigate } = useSheets();
   const { toast } = useToast();
+  const { coords } = useLocation();
 
   const [station, setStation] = useState<Station | null | undefined>(undefined);
   const [saved, setSaved] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [imHereOpen, setImHereOpen] = useState(false);
+  const [communityAt, setCommunityAt] = useState<string | null>(null);
+
+  const refreshCommunity = () =>
+    ReportService.getLatestReport(id).then((r) => setCommunityAt(r?.reportedAt ?? null));
 
   useEffect(() => {
-    StationService.getStation(id).then((s) => {
+    StationService.getStation(id, coords ?? undefined).then((s) => {
       setStation(s ?? null);
       setSaved(SavedStationService.isSaved(id));
     });
-  }, [id]);
+    refreshCommunity();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, coords?.lat, coords?.lng]);
 
   async function toggleSave() {
     const now = await SavedStationService.toggle(id);
@@ -118,6 +127,11 @@ export default function StationDetailsPage() {
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <StatusBadge availability={station.availability} />
           <ConfidenceBadge confidence={station.confidence} />
+          {communityAt && (
+            <span className="badge badge--recent" data-testid="community-update">
+              Community update • {relativeTime(communityAt)}
+            </span>
+          )}
         </div>
 
         <RecommendationBanner station={station} />
@@ -220,20 +234,29 @@ export default function StationDetailsPage() {
           </Button>
         </div>
 
-        {/* Secondary */}
+        {/* Secondary — community contribution, visible but not competing */}
         <div className="btn-row">
           <Button variant="outline" onClick={() => setImHereOpen(true)} data-testid="details-imhere">
             I&apos;m here
           </Button>
-          <Button variant="outline" onClick={() => setReportOpen(true)} data-testid="details-report">
-            Report update
+          <Button
+            variant="outline"
+            onClick={() => setReportOpen(true)}
+            data-testid="details-update-status"
+          >
+            <Users size={16} /> Update status
           </Button>
         </div>
 
         <BetterOptions station={station} />
       </div>
 
-      <ReportSheet open={reportOpen} station={station} onClose={() => setReportOpen(false)} />
+      <ReportSheet
+        open={reportOpen}
+        station={station}
+        onClose={() => setReportOpen(false)}
+        onSubmitted={refreshCommunity}
+      />
       <ImHereSheet open={imHereOpen} station={station} onClose={() => setImHereOpen(false)} />
     </div>
   );

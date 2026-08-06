@@ -27,12 +27,20 @@ Minimal shadows, 1px borders, rounded 12–16px. Freshness LIVE/RECENT/AGING/STA
 
 ## Implemented (2026-06)
 - Phases 1–15, 18–20 (customer app + data-freshness + empty/error states + PWA)
-- Animated premium landing: radar rings, floating pins, live-ticking queue card, shimmer accent, CTA sweep, staggered entrances (respects prefers-reduced-motion)
-- Notify-Me alert builder (queue/wait/CNG/pressure conditions; permission requested only on Create)
-- Station details with GOOD TIME / BUSY recommendation, stale handling (no old data shown as live; HISTORICAL ESTIMATE labeled), better-options
-- Navigation provider sheet, crowd Report sheet, I'm-Here geofence flow (mock)
-- Alerts (Active/Triggered CRUD), Saved, Profile, Mock Map with status markers
+- Animated premium landing (radar/live-ticking hero)
+- **User-reported live status** ("Update Status" 2-step sheet on Station Details: queue one-tap → availability → optional pressure; mock location-verified/unverified badge; `ReportService.submitStationReport()`). Reports never shown as authoritative — a "Community update • Just now" chip appears without changing HIGH/MED confidence.
+- **Nearest-first discovery**: `lib/geo.calculateDistance` (Haversine, single source), `StationService.getNearbyStations({origin,filters,sort})` sorts nearest→farthest by default and computes live distances from the user's coords. "Recommended" badge flags a substantially-better station while keeping nearest-first order.
+- **Sort & Filter** bottom sheet (Nearest/Wait/Queue/Updated; available-only, queue, wait, pressure, distance filters).
+- Location-denied resilience ("Turn on location…" → Enable / Choose Location; manual origin re-sorts).
+- Map + previews use the same StationService data/order; preview adds "View station".
+- Notify-Me alert builder, station recommendation, stale handling, navigation/report/I'm-here sheets, Alerts CRUD, Saved, Profile, Mock Map
 - ESC-to-close + backdrop-close on all sheets/modals
+
+## Service contract (mock now, backend-swappable)
+- `StationService.getNearbyStations({origin,filters,sort})`, `getStation(id,origin?)`, `getBetterOptions`
+- `ReportService.submitStationReport(report)`, `getLatestReport(id)`
+- `LocationService.getCurrentLocation()`, `calculateDistance()` (delegates to `lib/geo`)
+- Backend can later add identity, GPS verification, reputation, confidence weighting, spam prevention without UI rewrites.
 
 ## Verified
 - typecheck ✓, lint ✓, production build ✓

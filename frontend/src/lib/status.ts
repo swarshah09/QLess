@@ -191,3 +191,24 @@ export function getMarkerTone(station: Station): MarkerTone {
   if (upper <= 15) return 'moderate';
   return 'busy';
 }
+
+// Pick a station to flag as "Recommended" — an available station whose wait is
+// substantially shorter than the nearest one. Returns null when the nearest
+// station is already the best choice (so nearest-first ordering is unaffected).
+export function getRecommendedStationId(stations: Station[]): string | null {
+  const fresh = stations.filter(
+    (s) => !isStale(s.lastUpdated) && s.availability === 'AVAILABLE' && s.wait,
+  );
+  if (fresh.length < 2) return null;
+  const nearest = [...stations].sort(
+    (a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999),
+  )[0];
+  const best = [...fresh].sort(
+    (a, b) =>
+      (a.wait!.maxMinutes - b.wait!.maxMinutes) ||
+      ((queueUpperBound(a.queue) ?? 99) - (queueUpperBound(b.queue) ?? 99)),
+  )[0];
+  if (best.id === nearest.id) return null;
+  const nearestWait = nearest.wait?.maxMinutes ?? 999;
+  return nearestWait - best.wait!.maxMinutes >= 10 ? best.id : null;
+}

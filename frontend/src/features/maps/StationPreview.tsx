@@ -51,6 +51,14 @@ export function StationPreview({ station, onNotify, onNavigate }: Props) {
           <Bell size={16} /> Notify me
         </button>
       </div>
+      <Link
+        href={`/app/station/${station.id}`}
+        className="btn btn--outline btn--sm btn--block"
+        style={{ marginTop: 8 }}
+        data-testid={`preview-view-${station.id}`}
+      >
+        View station
+      </Link>
     </Card>
   );
 }

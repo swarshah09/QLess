@@ -15,10 +15,10 @@ export function LocationBanner() {
     return (
       <div className="card" data-testid="location-denied" style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 700, fontFamily: 'var(--font-heading)' }}>
-          Location access is off.
+          Turn on location to see the nearest CNG stations.
         </div>
         <p className="muted" style={{ fontSize: 14, margin: '4px 0 12px' }}>
-          Turn it on for nearby results, or enter your location manually.
+          We&apos;re showing an approximate order for now.
         </p>
         {manualOpen ? (
           <div className="stack" style={{ gap: 10 }}>
@@ -44,15 +44,20 @@ export function LocationBanner() {
           </div>
         ) : (
           <div className="btn-row">
-            <Button variant="outline" size="sm" onClick={() => requestLocation()}>
-              <Navigation size={16} /> Retry GPS
-            </Button>
             <Button
               size="sm"
-              onClick={() => setManualOpen(true)}
-              data-testid="enter-location-manually"
+              onClick={() => requestLocation()}
+              data-testid="enable-location"
             >
-              <MapPin size={16} /> Enter manually
+              <Navigation size={16} /> Enable Location
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setManualOpen(true)}
+              data-testid="choose-location"
+            >
+              <MapPin size={16} /> Choose Location
             </Button>
           </div>
         )}
