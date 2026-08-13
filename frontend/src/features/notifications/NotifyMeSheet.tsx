@@ -49,26 +49,45 @@ export function NotifyMeSheet({ open, station, existing, onClose, onSaved }: Pro
   async function handleCreate() {
     if (!station) return;
     setSaving(true);
+
     // Only ask for browser permission when the user actually creates an alert.
     const perm = await NotificationService.requestPermission();
+
+    let pushReady = false;
+    if (perm === 'granted') {
+      // Register the device so the backend has somewhere to deliver to.
+      await NotificationService.registerServiceWorker();
+      pushReady = await NotificationService.ensurePushSubscription();
+    }
+
     const finalConditions: NotificationConditions = {
       ...conditions,
       minPressure: usePressure ? conditions.minPressure : undefined,
     };
-    if (existing) {
-      await NotificationService.updateRule(existing.id, finalConditions);
-    } else {
-      await NotificationService.createRule(
-        station.id,
-        station.name,
-        finalConditions,
-      );
+
+    try {
+      if (existing) {
+        await NotificationService.updateRule(existing.id, finalConditions);
+      } else {
+        await NotificationService.createRule(station.id, station.name, finalConditions);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : 'Could not save the alert';
+      toast(message, 'error');
+      setSaving(false);
+      return;
     }
-    if (perm === 'denied') {
+
+    if (perm === 'denied' || perm === 'unsupported') {
       toast('Alert saved. Enable notifications to get pinged.', 'default');
+    } else if (!pushReady) {
+      // The rule is live and will still be evaluated; only delivery is missing.
+      toast('Alert saved. Push delivery is unavailable on this device.', 'default');
     } else {
       toast(existing ? 'Alert updated' : "Alert created — we'll notify you", 'success');
     }
+
     setSaving(false);
     onSaved?.();
     onClose();

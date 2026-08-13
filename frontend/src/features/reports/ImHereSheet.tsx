@@ -7,6 +7,7 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { LocationService } from '@/services/LocationService';
+import { VisitService } from '@/services/VisitService';
 import { useToast } from '@/hooks/ToastContext';
 
 interface Props {
@@ -20,13 +21,25 @@ type Phase = 'checking' | 'nearby' | 'far' | 'in-queue' | 'done';
 export function ImHereSheet({ open, station, onClose }: Props) {
   const { toast } = useToast();
   const [phase, setPhase] = useState<Phase>('checking');
+  // Set by a successful check-in; needed to advance the visit afterwards.
+  const [visitId, setVisitId] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && station) {
       setPhase('checking');
-      LocationService.verifyNearby(station.id).then((r) =>
-        setPhase(r.nearby ? 'nearby' : 'far'),
-      );
+      setVisitId(null);
+      let cancelled = false;
+
+      // The backend verifies proximity and opens the visit in one step.
+      LocationService.verifyNearby(station.id).then((r) => {
+        if (cancelled) return;
+        setVisitId(r.visitId);
+        setPhase(r.nearby ? 'nearby' : 'far');
+      });
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [open, station]);
 
@@ -71,6 +84,10 @@ export function ImHereSheet({ open, station, onClose }: Props) {
             <Button
               variant="secondary"
               onClick={() => {
+                // Not joining the queue ends the visit with no outcome claimed.
+                if (station && visitId) {
+                  void VisitService.complete(station.id, visitId, 'UNKNOWN');
+                }
                 toast('No problem.', 'default');
                 onClose();
               }}
@@ -78,7 +95,15 @@ export function ImHereSheet({ open, station, onClose }: Props) {
             >
               No
             </Button>
-            <Button onClick={() => setPhase('in-queue')} data-testid="imhere-queue-yes">
+            <Button
+              onClick={() => {
+                if (station && visitId) {
+                  void VisitService.joinQueue(station.id, visitId);
+                }
+                setPhase('in-queue');
+              }}
+              data-testid="imhere-queue-yes"
+            >
               Yes
             </Button>
           </div>
@@ -98,12 +123,31 @@ export function ImHereSheet({ open, station, onClose }: Props) {
           <Button
             block
             onClick={() => {
+              // Only an explicit confirmation records a successful refuel.
+              if (station && visitId) {
+                void VisitService.complete(station.id, visitId, 'REFUELLED');
+              }
               toast('Thanks for confirming!', 'success');
               onClose();
             }}
             data-testid="imhere-done"
           >
             Yes, done refuelling
+          </Button>
+          <Button
+            variant="secondary"
+            block
+            onClick={() => {
+              // Leaving without refuelling is a distinct, recorded outcome.
+              if (station && visitId) {
+                void VisitService.complete(station.id, visitId, 'ABANDONED_QUEUE');
+              }
+              toast('Thanks — noted that you left the queue.', 'default');
+              onClose();
+            }}
+            data-testid="imhere-left"
+          >
+            No, I left the queue
           </Button>
         </div>
       )}

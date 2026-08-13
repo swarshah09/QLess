@@ -5,3 +5,11 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Dependencies
+node_modules/
+
+# Build output
+.next/
+dist/
+*.tsbuildinfo

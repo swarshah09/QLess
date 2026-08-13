@@ -1,95 +1,177 @@
-import { MOCK_STATIONS } from '@/mocks';
-import { delay } from '@/lib/storage';
-import { distanceFrom } from '@/lib/geo';
-import { getFreshness, minutesSince, queueUpperBound } from '@/lib/status';
+import { apiRequest } from '@/lib/api/client';
+import { NEARBY_RADIUS_M } from '@/lib/api/config';
+import { mapStation, type ApiStation } from '@/lib/api/mappers';
+import { queueUpperBound } from '@/lib/status';
 import { DEFAULT_COORDS } from './LocationService';
-import type { Coordinates, NearbyQuery, Station, StationFilters, SortKey } from '@/types';
+import type { Coordinates, NearbyQuery, SortKey, Station, StationFilters } from '@/types';
 
-// Recompute the distance of a station from a reference point (Haversine).
-function withDistance(s: Station, origin: Coordinates): Station {
-  return { ...s, distanceKm: distanceFrom(origin, s.lat, s.lng) };
+// StationService — the single gateway between UI and station data.
+
+/** Frontend sort key → the backend's `sort` parameter. */
+const SORT_MAP: Record<SortKey, string> = {
+  nearest: 'distance',
+  wait: 'wait',
+  queue: 'queue',
+  updated: 'recent',
+};
+
+/**
+ * Filters the backend can evaluate server-side. `normalPressureOnly` and
+ * `maxDistanceKm` have no direct equivalent, so they stay client-side below.
+ */
+function toBackendFilters(filters?: StationFilters) {
+  if (!filters) return {};
+  return {
+    availability: filters.availableOnly ? 'AVAILABLE' : undefined,
+    maxQueue: filters.maxQueue,
+    maxWait: filters.maxWaitMinutes,
+  };
 }
 
-function applyFilters(stations: Station[], f?: StationFilters): Station[] {
-  if (!f) return stations;
+function applyClientFilters(stations: Station[], filters?: StationFilters): Station[] {
+  if (!filters) return stations;
   return stations.filter((s) => {
-    if (f.availableOnly && s.availability !== 'AVAILABLE') return false;
-    if (f.maxQueue != null) {
-      const q = queueUpperBound(s.queue);
-      if (q == null || q > f.maxQueue) return false;
-    }
-    if (f.maxWaitMinutes != null) {
-      if (!s.wait || s.wait.maxMinutes > f.maxWaitMinutes) return false;
-    }
-    if (f.normalPressureOnly && s.pressure.status !== 'NORMAL') return false;
-    if (f.maxDistanceKm != null && (s.distanceKm ?? Infinity) > f.maxDistanceKm)
+    if (filters.normalPressureOnly && s.pressure.status !== 'NORMAL') return false;
+    if (filters.maxDistanceKm != null && (s.distanceKm ?? Infinity) > filters.maxDistanceKm) {
       return false;
+    }
     return true;
   });
 }
 
-function applySort(stations: Station[], sort: SortKey): Station[] {
-  const arr = [...stations];
-  switch (sort) {
-    case 'wait':
-      return arr.sort(
-        (a, b) => (a.wait?.maxMinutes ?? 9999) - (b.wait?.maxMinutes ?? 9999),
-      );
-    case 'queue':
-      return arr.sort(
-        (a, b) => (queueUpperBound(a.queue) ?? 999) - (queueUpperBound(b.queue) ?? 999),
-      );
-    case 'updated':
-      return arr.sort(
-        (a, b) => minutesSince(a.lastUpdated) - minutesSince(b.lastUpdated),
-      );
-    case 'nearest':
-    default:
-      return arr.sort((a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999));
-  }
+export interface Recommendation {
+  recommendedStationId: string | null;
+  nearestStationId: string | null;
+  differsFromNearest: boolean;
+  savingMinutes: number | null;
+  reason: string | null;
+  alternatives: Array<{
+    stationId: string;
+    name: string;
+    distanceKm: number | null;
+    savingMinutes: number;
+  }>;
 }
 
-// StationService — the single gateway between UI and station data. Swapping
-// the mock body for real API calls should not require any UI changes.
 export const StationService = {
+  /**
+   * Nearby stations. The backend returns them NEAREST FIRST by default and
+   * applies the requested sort itself — the order is never re-derived here.
+   */
   async getNearbyStations(query: NearbyQuery = {}): Promise<Station[]> {
     const origin = query.origin ?? DEFAULT_COORDS;
-    const sort = query.sort ?? 'nearest'; // nearest-first is the default
-    const withDist = MOCK_STATIONS.map((s) => withDistance(s, origin));
-    const filtered = applyFilters(withDist, query.filters);
-    return delay(applySort(filtered, sort), 500);
+    const sort = query.sort ?? 'nearest';
+
+    const result = await apiRequest<{ stations: ApiStation[] }>('/stations/nearby', {
+      auth: false, // Guest-accessible; the token is attached when present.
+      query: {
+        latitude: origin.lat,
+        longitude: origin.lng,
+        radius: NEARBY_RADIUS_M,
+        sort: SORT_MAP[sort],
+        limit: 50,
+        ...toBackendFilters(query.filters),
+      },
+    });
+
+    return applyClientFilters(result.stations.map(mapStation), query.filters);
   },
 
   async getStation(id: string, origin?: Coordinates): Promise<Station | null> {
-    const found = MOCK_STATIONS.find((s) => s.id === id);
-    if (!found) return delay(null, 300);
-    return delay(withDistance(found, origin ?? DEFAULT_COORDS), 350);
-  },
-
-  async getStationsByIds(ids: string[], origin?: Coordinates): Promise<Station[]> {
     const o = origin ?? DEFAULT_COORDS;
-    const results = MOCK_STATIONS.filter((s) => ids.includes(s.id)).map((s) =>
-      withDistance(s, o),
-    );
-    return delay(results, 300);
+    try {
+      const result = await apiRequest<{ station: ApiStation }>(`/stations/${id}`, {
+        auth: false,
+        query: { latitude: o.lat, longitude: o.lng },
+      });
+      return mapStation(result.station);
+    } catch {
+      return null;
+    }
   },
 
-  // "Better options nearby" — available alternatives with a shorter queue.
+  /**
+   * Several stations by id. Resolved from one nearby query rather than N
+   * requests, falling back to individual fetches for anything outside the
+   * radius (a saved station can be far away).
+   */
+  async getStationsByIds(ids: string[], origin?: Coordinates): Promise<Station[]> {
+    if (ids.length === 0) return [];
+    const o = origin ?? DEFAULT_COORDS;
+
+    const nearby = await this.getNearbyStations({ origin: o });
+    const found = new Map(nearby.filter((s) => ids.includes(s.id)).map((s) => [s.id, s]));
+
+    const missing = ids.filter((id) => !found.has(id));
+    const fetched = await Promise.all(missing.map((id) => this.getStation(id, o)));
+
+    for (const station of fetched) {
+      if (station) found.set(station.id, station);
+    }
+
+    // Preserve the caller's ordering.
+    return ids.map((id) => found.get(id)).filter((s): s is Station => s !== undefined);
+  },
+
+  /**
+   * "Better options nearby" — backed by the recommendation endpoint, which
+   * ranks on travel time plus expected wait rather than queue alone.
+   */
   async getBetterOptions(id: string, origin?: Coordinates): Promise<Station[]> {
     const o = origin ?? DEFAULT_COORDS;
-    const base = MOCK_STATIONS.find((s) => s.id === id);
-    if (!base) return delay([], 200);
-    const baseQ = queueUpperBound(base.queue) ?? 99;
-    const options = MOCK_STATIONS.filter((s) => {
-      if (s.id === id) return false;
-      if (s.availability !== 'AVAILABLE') return false;
-      if (getFreshness(s.lastUpdated) === 'STALE') return false;
-      const q = queueUpperBound(s.queue) ?? 99;
-      return q < baseQ;
-    })
-      .map((s) => withDistance(s, o))
-      .sort((a, b) => (a.wait?.maxMinutes ?? 999) - (b.wait?.maxMinutes ?? 999))
-      .slice(0, 2);
-    return delay(options, 300);
+
+    try {
+      const result = await apiRequest<{
+        stations: ApiStation[];
+        recommendation: Recommendation;
+      }>('/stations/recommendations', {
+        auth: false,
+        query: { latitude: o.lat, longitude: o.lng, radius: NEARBY_RADIUS_M, limit: 20 },
+      });
+
+      const byId = new Map(result.stations.map((s) => [s.id, mapStation(s)]));
+
+      const options = result.recommendation.alternatives
+        .filter((alternative) => alternative.stationId !== id)
+        // Only genuinely faster options are worth surfacing.
+        .filter((alternative) => alternative.savingMinutes > 0)
+        .map((alternative) => byId.get(alternative.stationId))
+        .filter((s): s is Station => s !== undefined);
+
+      // The recommended station itself belongs here when it is not the one
+      // being viewed and was not already listed as an alternative.
+      const recommendedId = result.recommendation.recommendedStationId;
+      if (recommendedId && recommendedId !== id && !options.some((s) => s.id === recommendedId)) {
+        const recommended = byId.get(recommendedId);
+        if (recommended) options.unshift(recommended);
+      }
+
+      return options.slice(0, 2);
+    } catch {
+      return [];
+    }
   },
+
+  /** Full recommendation payload, including the nearest-first station list. */
+  async getRecommendations(origin?: Coordinates): Promise<{
+    stations: Station[];
+    recommendation: Recommendation;
+  }> {
+    const o = origin ?? DEFAULT_COORDS;
+    const result = await apiRequest<{
+      stations: ApiStation[];
+      recommendation: Recommendation;
+    }>('/stations/recommendations', {
+      auth: false,
+      query: { latitude: o.lat, longitude: o.lng, radius: NEARBY_RADIUS_M, limit: 50 },
+    });
+
+    return {
+      stations: result.stations.map(mapStation),
+      recommendation: result.recommendation,
+    };
+  },
+
+  /** Exposed for callers that need the queue bound without importing lib/status. */
+  queueUpperBound,
 };

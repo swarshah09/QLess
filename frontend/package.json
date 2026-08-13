@@ -11,20 +11,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "clsx": "2.1.1",
+    "lucide-react": "0.417.0",
     "next": "14.2.5",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "lucide-react": "0.417.0",
-    "clsx": "2.1.1"
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
-    "typescript": "5.5.4",
     "@types/node": "20.14.14",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
-    "sass": "1.77.8",
     "eslint": "8.57.0",
-    "eslint-config-next": "14.2.5"
+    "eslint-config-next": "14.2.5",
+    "sass": "1.77.8",
+    "typescript": "5.5.4"
   },
   "resolutions": {
     "@types/react": "18.3.3",

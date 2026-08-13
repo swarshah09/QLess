@@ -29,6 +29,7 @@ import { BetterOptions } from '@/features/stations/BetterOptions';
 import { ReportSheet } from '@/features/reports/ReportSheet';
 import { ImHereSheet } from '@/features/reports/ImHereSheet';
 import { ReportService } from '@/services/ReportService';
+import { RealtimeService, applyStationUpdate } from '@/services/RealtimeService';
 import { useSheets } from '@/hooks/SheetsContext';
 import { useToast } from '@/hooks/ToastContext';
 import { useLocation } from '@/hooks/LocationContext';
@@ -64,6 +65,16 @@ export default function StationDetailsPage() {
     refreshCommunity();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, coords?.lat, coords?.lng]);
+
+  // Live status while the station is on screen. The subscription is scoped to
+  // this station only and torn down on navigate away.
+  useEffect(() => {
+    return RealtimeService.subscribe(id, (update) => {
+      setStation((current) =>
+        current ? applyStationUpdate(current, update) : current,
+      );
+    });
+  }, [id]);
 
   async function toggleSave() {
     const now = await SavedStationService.toggle(id);

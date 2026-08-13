@@ -1,12 +1,14 @@
-import { MOCK_STATIONS } from '@/mocks';
-import { delay, readJSON, writeJSON } from '@/lib/storage';
+import { readJSON, writeJSON } from '@/lib/storage';
 import { calculateDistance } from '@/lib/geo';
+import { DEFAULT_MAP_CENTER } from '@/lib/api/config';
+import { StationService } from './StationService';
+import { VisitService } from './VisitService';
 import type { Coordinates } from '@/types';
 
 const KEY = 'qless.location.manual';
 
-// Default reference point (Vastrapur, Ahmedabad) used when no location yet.
-export const DEFAULT_COORDS: Coordinates = { lat: 23.03, lng: 72.555 };
+// Default reference point used before the user's location is known.
+export const DEFAULT_COORDS: Coordinates = DEFAULT_MAP_CENTER;
 
 export type LocationResult =
   | { status: 'granted'; coords: Coordinates; label: string }
@@ -52,14 +54,34 @@ export const LocationService = {
     );
   },
 
-  // Mock proximity check — pretends the user is near the station ~70% of time,
-  // but always "near" for the demo's primary station so flows can be tested.
-  async verifyNearby(stationId: string): Promise<{ nearby: boolean; stationName: string }> {
-    const station = MOCK_STATIONS.find((s) => s.id === stationId);
-    const nearby = stationId === 'shree-cng' ? true : Math.random() > 0.35;
-    return delay(
-      { nearby, stationName: station?.name ?? 'this station' },
-      900,
-    );
+  /**
+   * Server-side proximity check.
+   *
+   * Reads the device's real position and lets the BACKEND decide whether it is
+   * close enough — the geofence is enforced there, so there is nothing to fake
+   * here. A successful check also opens a StationVisit, which is what the
+   * "I'm Here" flow needs next.
+   */
+  async verifyNearby(
+    stationId: string,
+  ): Promise<{ nearby: boolean; stationName: string; visitId: string | null }> {
+    const [position, station] = await Promise.all([
+      this.getCurrentPosition(),
+      StationService.getStation(stationId),
+    ]);
+
+    const stationName = station?.name ?? 'this station';
+
+    if (position.status !== 'granted') {
+      return { nearby: false, stationName, visitId: null };
+    }
+
+    const result = await VisitService.checkIn(stationId, position.coords);
+
+    return {
+      nearby: result.status === 'checked-in',
+      stationName,
+      visitId: result.status === 'checked-in' ? result.visit.id : null,
+    };
   },
 };
