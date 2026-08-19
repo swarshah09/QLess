@@ -90,10 +90,6 @@ export default function LoginPage() {
           </Button>
         </form>
       </div>
-
-      <p className="muted" style={{ textAlign: 'center', fontSize: 13 }}>
-        Demo mode — any email &amp; password works.
-      </p>
     </main>
   );
 }

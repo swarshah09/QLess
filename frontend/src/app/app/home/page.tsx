@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { List, Map as MapIcon, SearchX, SlidersHorizontal, MapPin } from 'lucide-react';
+import { List, Loader2, Map as MapIcon, SearchX, SlidersHorizontal, MapPin } from 'lucide-react';
 import type { SortKey, Station, StationFilters } from '@/types';
 import { StationService } from '@/services/StationService';
 import { getRecommendedStationId } from '@/lib/status';
@@ -37,6 +37,11 @@ export default function HomePage() {
   const [sort, setSort] = useState<SortKey>('nearest');
   const [filters, setFilters] = useState<StationFilters>({});
   const [sfOpen, setSfOpen] = useState(false);
+  // Free-tier hosting can spin the backend down after idle and take upwards of
+  // a minute to wake on the next request. Left unexplained, that reads as the
+  // app being broken; naming it after a few seconds turns a silent hang into
+  // an understood wait.
+  const [slowWake, setSlowWake] = useState(false);
 
   const originKey = coords ? `${coords.lat},${coords.lng}` : 'default';
 
@@ -53,6 +58,11 @@ export default function HomePage() {
     if (originPending) return;
     setError(false);
     setStations(null);
+    setSlowWake(false);
+
+    // Only names the wait if the request is actually still in flight past a
+    // normal-latency window — a fast response never shows this message.
+    const slowTimer = setTimeout(() => setSlowWake(true), 4000);
     try {
       const data = await StationService.getNearbyStations({
         origin: coords ?? undefined,
@@ -62,6 +72,9 @@ export default function HomePage() {
       setStations(data);
     } catch {
       setError(true);
+    } finally {
+      clearTimeout(slowTimer);
+      setSlowWake(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [originKey, originPending, sort, JSON.stringify(filters)]);
@@ -128,6 +141,15 @@ export default function HomePage() {
           <ErrorState onRetry={load} />
         ) : stations === null ? (
           <div className="list">
+            {slowWake && (
+              <div className="hint" data-testid="slow-wake-hint">
+                <Loader2 size={16} className="spin" />
+                <div>
+                  Waking up the server — this can take up to a minute on first
+                  load after a period of inactivity.
+                </div>
+              </div>
+            )}
             <StationCardSkeleton />
             <StationCardSkeleton />
             <StationCardSkeleton />
