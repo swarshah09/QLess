@@ -9,6 +9,7 @@ import {
   Clock3,
   Fuel,
   Gauge,
+  HelpCircle,
   History,
   MapPin,
   Navigation2,
@@ -36,7 +37,6 @@ import { useLocation } from '@/hooks/LocationContext';
 import {
   formatDistance,
   formatWait,
-  getFreshness,
   isStale,
   relativeTime,
 } from '@/lib/status';
@@ -102,8 +102,12 @@ export default function StationDetailsPage() {
     );
   }
 
-  const stale = isStale(station.lastUpdated);
-  const freshness = getFreshness(station.lastUpdated);
+  // A station with no QLess reports yet has no real timestamp to judge
+  // freshness against — `lastUpdated` falls back to the epoch, which reads as
+  // "stale" and then as a fabricated "20684 days ago". `hasLiveData` is the
+  // single source of truth here; every stale/freshness check below is gated
+  // behind it so a never-reported station never gets treated as reported-but-old.
+  const stale = station.hasLiveData && isStale(station.lastUpdated);
 
   return (
     <div data-testid="station-details">
@@ -127,17 +131,22 @@ export default function StationDetailsPage() {
         </button>
       </header>
 
-      <div style={{ padding: 16 }} className="stack">
-        <div>
-          <h1 style={{ fontSize: 24 }}>{station.name}</h1>
-          <div className="station-card__meta" style={{ marginTop: 4 }}>
-            <MapPin size={14} /> {formatDistance(station.distanceKm)} · {station.address}
+      <div className="page-inset stack" style={{ gap: 28 }}>
+        <div className="details-title">
+          <span className="details-title__icon" aria-hidden>
+            <Fuel size={24} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <h1 className="details-title__name">{station.name}</h1>
+            <div className="station-card__meta" style={{ marginTop: 6 }}>
+              <MapPin size={14} /> {formatDistance(station.distanceKm)} · {station.address}
+            </div>
           </div>
         </div>
 
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
           <StatusBadge availability={station.availability} />
-          <ConfidenceBadge confidence={station.confidence} />
+          {station.hasLiveData && <ConfidenceBadge confidence={station.confidence} />}
           {communityAt && (
             <span className="badge badge--recent" data-testid="community-update">
               Community update • {relativeTime(communityAt)}
@@ -145,39 +154,53 @@ export default function StationDetailsPage() {
           )}
         </div>
 
-        <RecommendationBanner station={station} />
-
-        {/* Live stats */}
-        <Card className="stack" style={{ gap: 16 }}>
-          <div className="station-card__grid">
-            <Detail
-              icon={<Users size={16} />}
-              label="Queue"
-              value={
-                stale || station.queue === 'UNKNOWN'
-                  ? '—'
-                  : `${station.queue}`
-              }
-              hint={station.queue !== 'UNKNOWN' && !stale ? 'cars' : undefined}
-            />
-            <Detail
-              icon={<Clock3 size={16} />}
-              label="Est. wait"
-              value={stale || !station.wait ? '—' : formatWait(station.wait)}
-            />
-            <Detail
-              icon={<Gauge size={16} />}
-              label="Pressure"
-              value={
-                station.pressure.value === null
-                  ? '—'
-                  : `${station.pressure.value}`
-              }
-              hint={station.pressure.value !== null ? station.pressure.unit : undefined}
-            />
+        {station.hasLiveData ? (
+          <RecommendationBanner station={station} />
+        ) : (
+          // Single explanation instead of three overlapping ones (a second
+          // "UNKNOWN"/"stale" badge, a recommendation banner, and a stale card
+          // all saying the same thing). One box, one call to action.
+          <div className="reco reco--unknown" data-testid="no-live-info-banner">
+            <div className="reco__icon">
+              <HelpCircle size={20} />
+            </div>
+            <div>
+              <div className="reco__title">No live info yet</div>
+              <div className="reco__detail">
+                Nobody has reported queue, availability or pressure here. Be the
+                first — it takes a few seconds.
+              </div>
+            </div>
           </div>
-          <div className="divider" style={{ margin: 0 }} />
-          <div className="station-card__grid">
+        )}
+
+        <Card className="stack details-stats" style={{ gap: 22 }}>
+          {station.hasLiveData ? (
+            <>
+              <div className="station-card__grid details-stats__grid">
+                <Detail
+                  icon={<Users size={16} />}
+                  label="Queue"
+                  value={stale || station.queue === 'UNKNOWN' ? '—' : `${station.queue}`}
+                  hint={station.queue !== 'UNKNOWN' && !stale ? 'cars' : undefined}
+                />
+                <Detail
+                  icon={<Clock3 size={16} />}
+                  label="Est. wait"
+                  value={stale || !station.wait ? '—' : formatWait(station.wait)}
+                />
+                <Detail
+                  icon={<Gauge size={16} />}
+                  label="Pressure"
+                  value={station.pressure.value === null ? '—' : `${station.pressure.value}`}
+                  hint={station.pressure.value !== null ? station.pressure.unit : undefined}
+                />
+              </div>
+              <div className="divider" style={{ margin: 0 }} />
+            </>
+          ) : null}
+
+          <div className="station-card__grid details-stats__grid">
             <Detail
               icon={<MapPin size={16} />}
               label="Distance"
@@ -195,15 +218,20 @@ export default function StationDetailsPage() {
             <Detail
               icon={<Clock3 size={16} />}
               label="Updated"
-              value={relativeTime(station.lastUpdated).replace(' ago', '')}
+              value={station.hasLiveData ? relativeTime(station.lastUpdated).replace(' ago', '') : '—'}
             />
           </div>
-          <div className="station-card__foot" style={{ paddingTop: 12 }}>
-            <FreshnessIndicator lastUpdated={station.lastUpdated} />
-          </div>
+
+          {station.hasLiveData && (
+            <div className="station-card__foot" style={{ paddingTop: 14 }}>
+              <FreshnessIndicator lastUpdated={station.lastUpdated} />
+            </div>
+          )}
         </Card>
 
-        {/* Stale handling — never present old data as live */}
+        {/* Stale handling — never present old data as live. Only reachable
+            when hasLiveData is true, so this is genuinely old real data, not
+            the "never reported" case (handled by the banner above). */}
         {stale && (
           <Card style={{ borderColor: 'var(--tone-stale)' }} data-testid="stale-card">
             <div style={{ fontWeight: 700, color: 'var(--tone-stale)' }}>
@@ -230,33 +258,37 @@ export default function StationDetailsPage() {
           </Card>
         )}
 
-        {/* Primary CTAs */}
-        <div className="btn-row">
-          <Button size="lg" onClick={() => openNavigate(station)} data-testid="details-navigate">
-            <Navigation2 size={18} /> Navigate
-          </Button>
-          <Button
-            size="lg"
-            variant="secondary"
-            onClick={() => openNotify(station)}
-            data-testid="details-notify"
-          >
-            <Bell size={18} /> Notify me
-          </Button>
-        </div>
+        {/* Primary + secondary CTAs read as one action group, so they keep a
+            tighter gap between each other than the airier rhythm between the
+            page's major sections. */}
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="btn-row">
+            <Button size="lg" onClick={() => openNavigate(station)} data-testid="details-navigate">
+              <Navigation2 size={18} /> Navigate
+            </Button>
+            <Button
+              size="lg"
+              variant="secondary"
+              onClick={() => openNotify(station)}
+              data-testid="details-notify"
+            >
+              <Bell size={18} /> Notify me
+            </Button>
+          </div>
 
-        {/* Secondary — community contribution, visible but not competing */}
-        <div className="btn-row">
-          <Button variant="outline" onClick={() => setImHereOpen(true)} data-testid="details-imhere">
-            I&apos;m here
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => setReportOpen(true)}
-            data-testid="details-update-status"
-          >
-            <Users size={16} /> Update status
-          </Button>
+          {/* Secondary — community contribution, visible but not competing */}
+          <div className="btn-row">
+            <Button variant="outline" onClick={() => setImHereOpen(true)} data-testid="details-imhere">
+              I&apos;m here
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setReportOpen(true)}
+              data-testid="details-update-status"
+            >
+              <Users size={16} /> Update status
+            </Button>
+          </div>
         </div>
 
         <BetterOptions station={station} />

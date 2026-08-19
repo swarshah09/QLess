@@ -1,4 +1,5 @@
 import { apiRequest, ApiError } from '@/lib/api/client';
+import { hasTokens } from '@/lib/api/tokens';
 import { VAPID_PUBLIC_KEY } from '@/lib/api/config';
 import { mapRule, toRulePayload, type ApiNotificationRule } from '@/lib/api/mappers';
 import type { NotificationConditions, NotificationRule } from '@/types';
@@ -35,6 +36,10 @@ async function resolveVapidKey(): Promise<string | null> {
 // NotificationService — alert rules plus the browser push lifecycle.
 export const NotificationService = {
   async listRules(): Promise<NotificationRule[]> {
+    // Alerts are per-account, so a guest has none. Returning early avoids a
+    // guaranteed 401 on every visit to the alerts screen.
+    if (!hasTokens()) return [];
+
     const result = await apiRequest<{ rules: ApiNotificationRule[] }>(
       '/notifications/rules',
     );
@@ -182,6 +187,7 @@ export const NotificationService = {
   async listSubscriptions(): Promise<
     Array<{ id: string; endpointSuffix: string; userAgent: string | null }>
   > {
+    if (!hasTokens()) return [];
     const result = await apiRequest<{
       subscriptions: Array<{ id: string; endpointSuffix: string; userAgent: string | null }>;
     }>('/notifications/subscriptions');
@@ -211,6 +217,8 @@ export const NotificationService = {
   async listEvents(): Promise<
     Array<{ id: string; title: string; body: string; status: string; createdAt: string }>
   > {
+    if (!hasTokens()) return [];
+
     const result = await apiRequest<{
       items: Array<{
         id: string;

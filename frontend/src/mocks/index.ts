@@ -24,6 +24,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 2,
     totalDispensers: 4,
     historicalHint: null,
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'greenfuel-cng',
@@ -41,6 +46,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 2,
     totalDispensers: 4,
     historicalHint: 'Usually busy around this time',
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'sunrise-cng',
@@ -59,6 +69,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 4,
     totalDispensers: 4,
     historicalHint: null,
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'abc-cng',
@@ -76,6 +91,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 3,
     totalDispensers: 4,
     historicalHint: null,
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'metro-gas',
@@ -93,6 +113,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 0,
     totalDispensers: 3,
     historicalHint: 'Usually moderate around this time',
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'city-cng',
@@ -110,6 +135,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: 1,
     totalDispensers: 4,
     historicalHint: null,
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: true,
+    source: 'SEED',
+    googleMapsUri: null,
   },
   {
     id: 'highway-cng',
@@ -127,6 +157,11 @@ export const MOCK_STATIONS: Station[] = [
     activeDispensers: null,
     totalDispensers: 4,
     historicalHint: 'Usually moderate around this time',
+    // Mock fixtures represent stations that already have reports; the one
+    // UNKNOWN entry below stands in for a freshly discovered station.
+    hasLiveData: false,
+    source: 'PLACES',
+    googleMapsUri: null,
   },
 ];
 

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import { Button } from '@/components/ui/Button';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import { useAuth } from '@/hooks/AuthContext';
 import { useToast } from '@/hooks/ToastContext';
 
@@ -21,9 +22,22 @@ export default function LoginPage() {
     e.preventDefault();
     if (!email || !password) return;
     setLoading(true);
-    await login(email, password);
-    toast('Welcome back!', 'success');
-    router.replace('/app/home');
+    try {
+      await login(email, password);
+      toast('Welcome back!', 'success');
+      router.replace('/app/home');
+    } catch (error) {
+      // The backend returns one generic message for every credential failure,
+      // so it is safe to surface verbatim.
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not sign in. Please try again.';
+      toast(message, 'error');
+    } finally {
+      // Must reset on failure too, or the button stays stuck disabled.
+      setLoading(false);
+    }
   }
 
   return (
@@ -46,7 +60,8 @@ export default function LoginPage() {
             <input
               id="email"
               className="input"
-              type="text"
+              type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -55,10 +70,9 @@ export default function LoginPage() {
           </div>
           <div className="field">
             <label htmlFor="password">Password</label>
-            <input
+            <PasswordInput
               id="password"
-              className="input"
-              type="password"
+              autoComplete="current-password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

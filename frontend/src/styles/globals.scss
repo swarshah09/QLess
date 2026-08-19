@@ -260,46 +260,130 @@ h4 {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 16px;
-  padding-bottom: calc(var(--nav-h) + 20px);
+  // No padding at all: a sticky AppHeader must be flush with EVERY edge of the
+  // true scroll box (top AND sides), or scrolled content shows through the gap
+  // instead of being covered by it. Each page supplies its own inset via
+  // .page-inset (below) instead, since only some pages render AppHeader and
+  // their layouts differ (the map page uses position:absolute and owns its
+  // own full-bleed chrome).
+  padding: 0;
+}
+
+// Reproduces the horizontal/bottom insets .shell__scroll used to provide, for
+// pages that need them applied to their own root instead. Pages that render a
+// sticky AppHeader must NOT put this on the same element as the header, or the
+// header inherits the horizontal padding and stops being full-bleed.
+.page-inset {
+  padding: 16px 16px calc(var(--nav-h) + 20px);
 }
 
 // ---- App header -------------------------------------------
 .app-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 10px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--border);
+  /* Translucent so content scrolling underneath reads as depth rather than a
+     hard cut. Falls back to the solid token where backdrop-filter is absent. */
   background: var(--bg);
   position: sticky;
   top: 0;
   z-index: 20;
 }
 
+@supports (backdrop-filter: blur(12px)) {
+  .app-header {
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(14px);
+  }
+}
+
+.app-header__brand {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+/* The location chip is the header's primary control, so it reads as a pressable
+   surface rather than bare text. */
 .app-header__loc {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.12s ease;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  }
+  &:active {
+    transform: scale(0.985);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+.app-header__loc-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+
+.app-header__spin {
+  animation: qless-spin 0.9s linear infinite;
+}
+
+@keyframes qless-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .app-header__loc-text {
   min-width: 0;
+  flex: 1 1 auto;
   .overline {
     display: block;
     margin-bottom: 1px;
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
   }
   strong {
     font-family: var(--font-heading);
-    font-size: 15px;
+    font-size: 14.5px;
+    line-height: 1.15;
     display: block;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 190px;
   }
+}
+
+.app-header__loc-caret {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+
+.app-header__theme {
+  flex: 0 0 auto;
 }
 
 .icon-btn {
@@ -521,13 +605,15 @@ h4 {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 4px 9px;
   border-radius: var(--radius-full);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 .badge__dot {
@@ -686,6 +772,40 @@ h4 {
   cursor: pointer;
 }
 
+// Track filled from the start up to the thumb, driven by the --slider-fill
+// custom property each control sets inline from its own value/max. Firefox
+// supports range styling natively via ::-moz-range-progress; WebKit has no
+// equivalent pseudo-element, so it's built from a background gradient instead.
+.slider--filled {
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--slider-fill, 0%),
+    var(--surface-2) var(--slider-fill, 0%)
+  );
+}
+.slider--filled::-moz-range-progress {
+  background: var(--primary);
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+// ---- Distance slider (filter sheet) ------------------------
+.dist-slider__value {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.dist-slider__track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dist-slider__pin {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
 // ---- Stepper (numeric +/-) --------------------------------
 .stepper {
   display: inline-flex;
@@ -752,6 +872,35 @@ h4 {
   }
   &::placeholder {
     color: var(--text-tertiary);
+  }
+}
+
+// ---- Password input (show/hide toggle) ---------------------
+.password-input {
+  position: relative;
+  display: flex;
+}
+.password-input__field {
+  // Room for the toggle button so typed characters never run under it.
+  padding-right: 44px;
+}
+.password-input__toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  transition: color 0.15s ease;
+  &:hover {
+    color: var(--text-secondary);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
   }
 }
 
@@ -951,42 +1100,85 @@ h4 {
 .station-card {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 .station-card__top {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+// Icon chip anchors the row so the eye has a fixed starting point instead of
+// jumping straight into a wall of text.
+.station-card__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.station-card__heading {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .station-card__name {
   font-family: var(--font-heading);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
+  // Long discovered-station names (common from map-provider data) get one
+  // line then an ellipsis, rather than pushing the badge around or wrapping
+  // into the meta row below.
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+// Distance reads as a small pill so it stops competing with the address for
+// attention on the same line — it's a fact, not a headline.
+.station-card__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  min-width: 0;
+}
+.station-card__distance {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.station-card__address {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+
 .reco-tag {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 4px;
-  margin-left: 8px;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: var(--radius-full);
   background: var(--tint-live);
   color: var(--tone-live);
   font-family: var(--font-body);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  vertical-align: middle;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
-.station-card__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  margin-top: 2px;
-}
+
 .station-card__badges {
   display: flex;
   flex-wrap: wrap;
@@ -995,27 +1187,49 @@ h4 {
 .station-card__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: 8px;
 }
+
+/**
+ * Shown in place of the stat grid when a station has no QLess reports yet —
+ * typically one just discovered from the map provider. The badge already
+ * states UNKNOWN, so this is a single quiet line pointing at the fix rather
+ * than a second box repeating "no data". Uses only themed tokens so it reads
+ * correctly in both light and dark.
+ */
+.station-card__nodata {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 .stat {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  text-align: center;
 }
 .stat__label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
 .stat__value {
   font-family: var(--font-heading);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 .stat__value small {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -1027,7 +1241,7 @@ h4 {
   font-size: 12px;
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: 10px;
 }
 .station-card__freshness {
   display: inline-flex;
@@ -1036,14 +1250,53 @@ h4 {
   font-weight: 600;
 }
 
+// ---- Station details page header ---------------------------
+// Same icon-chip pattern as .station-card__icon, sized for a page header
+// rather than a compact list row.
+.details-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.details-title__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+.details-title__name {
+  font-size: 23px;
+  line-height: 1.3;
+}
+
+// Full-page stat grid: same tiles as the compact station-card grid, given
+// more room to breathe since this page owns the whole screen rather than
+// sharing space with a scrolling list of other cards.
+.details-stats {
+  padding: 20px;
+}
+.details-stats__grid {
+  gap: 12px;
+}
+.details-stats__grid .stat {
+  padding: 14px 6px;
+  gap: 6px;
+}
+
 // ============================================================
 // FEATURE: recommendation banner
 // ============================================================
 .reco {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: flex-start;
-  padding: 16px;
+  // Only used on the full-page station details screen, so it can afford more
+  // room than a card-embedded banner would.
+  padding: 20px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
 }
@@ -1808,4 +2061,239 @@ h4 {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ---- Inline text button (e.g. "Sign in" inside a sentence) ---------------- */
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--brand);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { opacity: 0.8; }
+
+/* Spinner for inline loading states inside buttons. */
+@keyframes qless-spin { to { transform: rotate(360deg); } }
+.spin { animation: qless-spin 0.9s linear infinite; }
+
+/* The auth tabs carry an icon alongside the label. */
+.segmented__option svg { margin-right: 6px; vertical-align: -3px; }
+
+/* ---- Google Map --------------------------------------------------------- */
+.gmap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.gmap__canvas {
+  position: absolute;
+  inset: 0;
+}
+.gmap__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+  z-index: 2;
+}
+.gmap__recentre {
+  position: absolute;
+  right: 14px;
+  bottom: 96px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  z-index: 3;
+}
+.gmap__recentre:active { transform: scale(0.94); }
+.gmap__preview {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 14px;
+  z-index: 3;
+}
+
+/* Live-tracking / permission banner above the map. */
+.map-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tone-available);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.map-status--warn { color: var(--tone-aging); }
+.map-status__pulse { animation: qless-pulse 1.6s ease-in-out infinite; }
+@keyframes qless-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ---- Manual location picker ---------------------------------------------- */
+.locpick {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.locpick__field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  height: 46px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-tertiary);
+
+  &:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+}
+
+.locpick__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 15px;
+  color: var(--text);
+
+  &::placeholder {
+    color: var(--text-tertiary);
+  }
+}
+
+.locpick__spin {
+  animation: qless-spin 0.9s linear infinite;
+  flex: 0 0 auto;
+}
+
+.locpick__gps {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+
+  &:active {
+    transform: scale(0.99);
+  }
+}
+
+.locpick__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  /* Bounded so a long result set cannot push the sheet past the viewport. */
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.locpick__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-tertiary);
+
+  &:hover {
+    background: var(--surface-2);
+  }
+  &:active {
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+  }
+}
+
+.locpick__item-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  strong {
+    font-size: 14.5px;
+    color: var(--text);
+    font-weight: 700;
+  }
+  small {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-tertiary);
+  }
+}
+
+.locpick__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-tertiary);
+
+  span {
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+  small {
+    font-size: 12.5px;
+  }
+}
+
+.locpick__hint {
+  margin: 0;
+  padding: 2px 2px 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+/* Manual-area badge on the map: red to match the outline drawn around it. */
+.map-status--area {
+  color: #dc2626;
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  border-color: color-mix(in srgb, #dc2626 35%, transparent);
 }

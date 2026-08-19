@@ -3,8 +3,12 @@
 Everything a client (web PWA, Android, iOS) needs to talk to this API.
 
 - **Base URL:** `http://localhost:4000/api/v1` (dev) — all endpoints are versioned under `/api/v1`
-- **Interactive docs:** `GET /api/v1/docs` (Swagger UI) · `GET /api/v1/docs/openapi.json`
-- **Health:** `GET /api/v1/health`
+- **Stack:** Node.js · Express · MongoDB · Mongoose · JWT · Socket.IO
+- **Health:** `GET /api/v1/health` · `GET /api/v1/health/detailed`
+
+> **Ids are MongoDB ObjectIds** (24-char hex, e.g. `6a7d6cd76e6a1beb2c19219f`),
+> not UUIDs. Treat them as opaque strings — the API shape is otherwise
+> unchanged.
 
 ## Response envelope
 
@@ -327,7 +331,7 @@ Stack traces appear only outside production.
 ```bash
 PORT=4000
 NODE_ENV=development
-DATABASE_URL="postgresql://user:pass@localhost:5432/qless?schema=public"
+MONGODB_URI=mongodb://127.0.0.1:27017/qless
 
 # Comma-separated allowed browser origins. Originless (native) requests pass.
 FRONTEND_URL=http://localhost:5173
@@ -363,11 +367,13 @@ is missing or malformed.
 ```bash
 cp .env.example .env
 npm install
-createdb qless
-npm run prisma:migrate
+# MongoDB must be running (mongod --dbpath <path>)
 npm run seed          # 10 stations, 1 admin, 3 operators, 9 users
 npm run dev
 ```
+
+Indexes (including the 2dsphere used for nearest-first discovery) are declared
+on the Mongoose schemas and created automatically on connect.
 
 Seeded accounts share the password **`QLessDev#2026`**:
 `admin@qless.test`, `operator.navrangpura@qless.test`, `user1@qless.test` …

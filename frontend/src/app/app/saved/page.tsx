@@ -42,7 +42,7 @@ export default function SavedPage() {
   }, [load]);
 
   return (
-    <div data-testid="saved-page" style={{ paddingTop: 8 }}>
+    <div data-testid="saved-page" className="page-inset">
       <h1 className="page-title">Saved stations</h1>
       <p className="page-sub">Your go-to CNG stops with live status.</p>
 

@@ -26,6 +26,8 @@ export interface ApiStationStatus {
   computedAt: string | null;
   lastOperatorUpdateAt?: string | null;
   lastUserUpdateAt?: string | null;
+  /** False when no QLess report backs this station yet. */
+  hasLiveData?: boolean;
 }
 
 export interface ApiStation {
@@ -39,6 +41,8 @@ export interface ApiStation {
   numberOfDispensers: number;
   distanceKm: number | null;
   distanceM: number | null;
+  source?: 'SEED' | 'MANUAL' | 'PLACES';
+  googleMapsUri?: string | null;
   saved: boolean;
   status: ApiStationStatus;
 }
@@ -128,6 +132,11 @@ export function mapStation(api: ApiStation): Station {
     confidence: toConfidence(status.confidence, status.freshness),
     activeDispensers: status.activeDispensers,
     totalDispensers: api.numberOfDispensers,
+    // Trust the backend's explicit flag rather than re-deriving it here: it is
+    // the single place that knows whether any report actually exists.
+    hasLiveData: status.hasLiveData ?? false,
+    source: api.source ?? 'MANUAL',
+    googleMapsUri: api.googleMapsUri ?? null,
   };
 }
 

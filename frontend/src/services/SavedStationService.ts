@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api/client';
+import { hasTokens } from '@/lib/api/tokens';
 import { readJSON, writeJSON } from '@/lib/storage';
 import type { SavedLabel, SavedStation } from '@/types';
 
@@ -38,6 +39,9 @@ function mapSaved(row: ApiSavedStation): SavedStation {
 
 export const SavedStationService = {
   async list(): Promise<SavedStation[]> {
+    // Saved stations are per-account; a guest keeps a purely local list.
+    if (!hasTokens()) return readMirror();
+
     try {
       const result = await apiRequest<{ stations: ApiSavedStation[] }>('/stations/saved');
       const items = result.stations.map(mapSaved);
@@ -59,6 +63,20 @@ export const SavedStationService = {
 
   async toggle(stationId: string): Promise<boolean> {
     const saved = this.isSaved(stationId);
+
+    // Guests toggle locally only — the UI stays responsive and the list is
+    // adopted once they sign in.
+    if (!hasTokens()) {
+      if (saved) {
+        writeMirror(readMirror().filter((s) => s.stationId !== stationId));
+        return false;
+      }
+      writeMirror([
+        { stationId, label: 'FAVORITE', savedAt: new Date().toISOString() },
+        ...readMirror(),
+      ]);
+      return true;
+    }
 
     if (saved) {
       await apiRequest<unknown>(`/stations/${stationId}/save`, { method: 'DELETE' });

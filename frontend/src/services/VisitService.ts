@@ -1,4 +1,5 @@
 import { apiRequest, ApiError } from '@/lib/api/client';
+import { hasTokens } from '@/lib/api/tokens';
 import type { Coordinates } from '@/types';
 
 // VisitService — the "I'm Here" lifecycle.
@@ -31,6 +32,7 @@ export type CheckInResult =
 export const VisitService = {
   /** Records arrival. The backend rejects a check-in outside the geofence. */
   async checkIn(stationId: string, coords: Coordinates | null): Promise<CheckInResult> {
+    if (!hasTokens()) return { status: 'unauthenticated' };
     if (!coords) return { status: 'no-location' };
 
     try {
@@ -96,6 +98,7 @@ export const VisitService = {
   },
 
   async history(): Promise<Visit[]> {
+    if (!hasTokens()) return [];
     try {
       const result = await apiRequest<{ items: Visit[] }>('/stations/visits', {
         query: { limit: 20 },

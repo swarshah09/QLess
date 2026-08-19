@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { MapPin } from 'lucide-react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { Chip } from '@/components/ui/Chip';
@@ -28,6 +29,9 @@ const QUEUE_OPTS = [
 ];
 const WAIT_OPTS = [5, 10, 15];
 const DIST_OPTS = [2, 5, 10, 20];
+// Matches the backend's GEO.maxSearchRadiusM (100 km) — the slider should
+// never let a user pick a value the API would reject.
+const DIST_SLIDER_MAX = 100;
 
 export function SortFilterSheet({ open, sort, filters, onApply, onClose }: Props) {
   const [s, setS] = useState<SortKey>(sort);
@@ -54,8 +58,14 @@ export function SortFilterSheet({ open, sort, filters, onApply, onClose }: Props
           <Button
             variant="outline"
             onClick={() => {
+              // Must call onApply, not just clear local state: the parent
+              // (which drives the actual station fetch) otherwise keeps
+              // whatever sort/filters were last applied, so Reset would look
+              // like it worked in the sheet while the station list stayed
+              // filtered.
               setS('nearest');
               setF({});
+              onApply('nearest', {});
             }}
             data-testid="filter-reset"
           >
@@ -158,6 +168,41 @@ export function SortFilterSheet({ open, sort, filters, onApply, onClose }: Props
               Within {d} km
             </Chip>
           ))}
+        </div>
+
+        {/* Fine control beyond the presets, up to the backend's search cap —
+            picking any value here also selects/deselects the matching chip
+            above, so the two controls always agree on one filter value. */}
+        <div className="dist-slider" style={{ marginTop: 16 }}>
+          <div className="dist-slider__value">
+            {f.maxDistanceKm ? `${f.maxDistanceKm} km` : `Up to ${DIST_SLIDER_MAX} km`}
+          </div>
+          <div className="dist-slider__track">
+            <MapPin size={18} className="dist-slider__pin" />
+            <input
+              className="slider slider--filled"
+              type="range"
+              min={1}
+              max={DIST_SLIDER_MAX}
+              value={f.maxDistanceKm ?? DIST_SLIDER_MAX}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                setF((prev) => ({
+                  ...prev,
+                  // The full-range end means "no distance limit" — matches the
+                  // chips' behaviour where nothing selected means unfiltered.
+                  maxDistanceKm: value === DIST_SLIDER_MAX ? undefined : value,
+                }));
+              }}
+              style={
+                {
+                  '--slider-fill': `${((f.maxDistanceKm ?? DIST_SLIDER_MAX) / DIST_SLIDER_MAX) * 100}%`,
+                } as React.CSSProperties
+              }
+              aria-label="Maximum distance"
+              data-testid="filter-distance-slider"
+            />
+          </div>
         </div>
       </div>
     </BottomSheet>

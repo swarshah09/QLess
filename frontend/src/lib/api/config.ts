@@ -25,9 +25,17 @@ export const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '';
 /** Default map centre when the user has no location yet (Ahmedabad). */
 export const DEFAULT_MAP_CENTER = { lat: 23.03, lng: 72.555 };
 
-/** Search radius in metres for nearby discovery. */
+/**
+ * Default search radius in metres for nearby discovery — a typical city span,
+ * so results load fast and stay locally relevant without the user having to
+ * open the filter sheet. The "Distance" filter lets them widen it up to the
+ * backend's cap.
+ *
+ * Must not exceed the backend's GEO.maxSearchRadiusM (100 km) or the request is
+ * rejected by query validation.
+ */
 export const NEARBY_RADIUS_M = Number(
-  process.env.NEXT_PUBLIC_NEARBY_RADIUS_M ?? 15000,
+  process.env.NEXT_PUBLIC_NEARBY_RADIUS_M ?? 20000,
 );
 
 export const REALTIME_ENABLED =

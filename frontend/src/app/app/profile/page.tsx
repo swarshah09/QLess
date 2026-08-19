@@ -7,11 +7,15 @@ import {
   Bell,
   Bookmark,
   ChevronRight,
+  LogIn,
   LogOut,
   MapPin,
   Moon,
   Sun,
+  UserPlus,
 } from 'lucide-react';
+import { AuthSheet } from '@/features/auth/AuthSheet';
+import { LocationPickerSheet } from '@/features/location/LocationPickerSheet';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
@@ -27,6 +31,8 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const [confirmOut, setConfirmOut] = useState(false);
   const [pushOn, setPushOn] = useState(false);
+  const [authSheet, setAuthSheet] = useState<'signin' | 'signup' | null>(null);
+  const [locationSheet, setLocationSheet] = useState(false);
 
   useEffect(() => {
     setPushOn(NotificationService.getPermissionState() === 'granted');
@@ -57,7 +63,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div data-testid="profile-page" style={{ paddingTop: 8 }}>
+    <div data-testid="profile-page" className="page-inset">
       <h1 className="page-title">Profile</h1>
       <p className="page-sub">Manage your account and preferences.</p>
 
@@ -78,12 +84,26 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {isGuest && (
-        <Link href="/login" style={{ display: 'block', marginBottom: 16 }}>
-          <Button block data-testid="profile-login">
-            Login to sync alerts
-          </Button>
-        </Link>
+      {/* Signed-out users get both paths side by side, so "already registered"
+          and "new here" are each one tap away. */}
+      {!user && (
+        <div className="stack" style={{ gap: 10, marginBottom: 20 }}>
+          <p className="muted" style={{ fontSize: 14, margin: 0 }}>
+            Sign in to sync your alerts and saved stations across devices.
+          </p>
+          <div className="btn-row">
+            <Button
+              variant="secondary"
+              onClick={() => setAuthSheet('signup')}
+              data-testid="profile-signup"
+            >
+              <UserPlus size={18} /> Sign up
+            </Button>
+            <Button onClick={() => setAuthSheet('signin')} data-testid="profile-signin">
+              <LogIn size={18} /> Sign in
+            </Button>
+          </div>
+        </div>
       )}
 
       <div className="overline" style={{ marginBottom: 8 }}>
@@ -111,21 +131,37 @@ export default function ProfilePage() {
           <span>Saved stations</span>
           <ChevronRight size={18} style={{ color: 'var(--text-tertiary)' }} />
         </Link>
-        <Link href="/app/home" className="menu__item" data-testid="profile-location">
+        <button
+          type="button"
+          className="menu__item"
+          onClick={() => setLocationSheet(true)}
+          data-testid="profile-location"
+        >
           <MapPin size={20} />
           <span>Location preferences</span>
           <ChevronRight size={18} style={{ color: 'var(--text-tertiary)' }} />
-        </Link>
+        </button>
       </div>
 
-      <Button
-        variant="outline"
-        block
-        onClick={() => setConfirmOut(true)}
-        data-testid="logout-btn"
-      >
-        <LogOut size={18} /> Logout
-      </Button>
+      <LocationPickerSheet open={locationSheet} onClose={() => setLocationSheet(false)} />
+
+      {user && (
+        <Button
+          variant="outline"
+          block
+          onClick={() => setConfirmOut(true)}
+          data-testid="logout-btn"
+        >
+          <LogOut size={18} /> Logout
+        </Button>
+      )}
+
+      <AuthSheet
+        open={authSheet !== null}
+        initialMode={authSheet ?? 'signin'}
+        onClose={() => setAuthSheet(null)}
+        onSuccess={() => router.refresh()}
+      />
 
       <Modal
         open={confirmOut}

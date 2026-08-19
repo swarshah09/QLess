@@ -24,9 +24,14 @@ export const metadata: Metadata = {
     'Live CNG availability, queues and pressure near you. Know before you queue.',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
-    capable: true,
+    // `capable` is deliberately omitted: Next emits the deprecated
+    // `apple-mobile-web-app-capable` tag for it. The standard
+    // `mobile-web-app-capable` below covers iOS too on current Safari.
     statusBarStyle: 'default',
     title: 'QLess',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
 };
 

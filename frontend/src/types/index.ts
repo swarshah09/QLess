@@ -47,6 +47,17 @@ export interface Station {
   totalDispensers: number | null;
   // Optional historical hint used only when live data is stale.
   historicalHint?: string | null;
+
+  /**
+   * False when no QLess report has ever backed this station — typically one
+   * just discovered from the map provider. The UI must show "Live information
+   * unavailable" rather than rendering zeros for queue/wait/pressure.
+   */
+  hasLiveData: boolean;
+  /** Where the record came from; PLACES means provider-discovered. */
+  source: 'SEED' | 'MANUAL' | 'PLACES';
+  /** Provider deep link for navigation, when known. */
+  googleMapsUri: string | null;
 }
 
 // Lightweight derived status snapshot used by cards/badges.
@@ -111,9 +122,33 @@ export interface Coordinates {
 export type LocationState =
   | { status: 'unknown' }
   | { status: 'granted'; coords: Coordinates; label: string }
-  | { status: 'manual'; coords: Coordinates | null; label: string }
+  | {
+      status: 'manual';
+      coords: Coordinates | null;
+      label: string;
+      /** Extent of the chosen area, outlined on the map. */
+      bounds?: PlaceBounds | null;
+    }
   | { status: 'denied' }
+  // Geolocation was attempted but failed for a reason other than a permission
+  // refusal (insecure origin, timeout, no fix). Kept distinct from 'denied' so
+  // the UI can tell the user what to actually do about it.
+  | { status: 'error'; reason: LocationErrorReason; message: string }
   | { status: 'loading' };
+
+/** Bounding box of a chosen place, in plain degrees. */
+export interface PlaceBounds {
+  north: number;
+  south: number;
+  east: number;
+  west: number;
+}
+
+export type LocationErrorReason =
+  | 'insecure-context'
+  | 'unsupported'
+  | 'timeout'
+  | 'unavailable';
 
 export type NavProvider = 'google' | 'apple' | 'waze' | 'default';
 

@@ -62,7 +62,7 @@ export default function AlertsPage() {
   }
 
   return (
-    <div data-testid="alerts-page" style={{ paddingTop: 8 }}>
+    <div data-testid="alerts-page" className="page-inset">
       <h1 className="page-title">Alerts</h1>
       <p className="page-sub">Get pinged the moment a station is worth the drive.</p>
 

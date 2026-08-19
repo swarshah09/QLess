@@ -17,6 +17,7 @@ import { LocationBanner } from '@/features/location/LocationBanner';
 import { useSheets } from '@/hooks/SheetsContext';
 import { useAuth } from '@/hooks/AuthContext';
 import { useLocation } from '@/hooks/LocationContext';
+import { NEARBY_RADIUS_M } from '@/lib/api/config';
 
 const SORT_LABEL: Record<SortKey, string> = {
   nearest: 'Nearest',
@@ -29,7 +30,7 @@ export default function HomePage() {
   const router = useRouter();
   const { openNotify, openNavigate } = useSheets();
   const { user } = useAuth();
-  const { coords, location, requestLocation } = useLocation();
+  const { coords, location, resolving } = useLocation();
 
   const [stations, setStations] = useState<Station[] | null>(null);
   const [error, setError] = useState(false);
@@ -39,7 +40,17 @@ export default function HomePage() {
 
   const originKey = coords ? `${coords.lat},${coords.lng}` : 'default';
 
+  // While location is still resolving we have no real origin. Querying now would
+  // return results ranked from the default city and then immediately re-rank,
+  // so hold the request until the origin is settled one way or the other.
+  const originPending = coords === null && resolving;
+
+  const hasActiveFilters = Object.values(filters).some(
+    (v) => v !== undefined && v !== false && v !== null,
+  );
+
   const load = useCallback(async () => {
+    if (originPending) return;
     setError(false);
     setStations(null);
     try {
@@ -53,7 +64,7 @@ export default function HomePage() {
       setError(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [originKey, sort, JSON.stringify(filters)]);
+  }, [originKey, originPending, sort, JSON.stringify(filters)]);
 
   useEffect(() => {
     load();
@@ -62,17 +73,17 @@ export default function HomePage() {
   const firstName = user?.name?.split(' ')[0];
   const recommendedId = stations ? getRecommendedStationId(stations) : null;
   const locLabel =
-    location.status === 'granted'
+    location.status === 'granted' || location.status === 'manual'
       ? location.label
-      : location.status === 'manual'
-        ? location.label
-        : 'Current location';
+      : location.status === 'loading'
+        ? 'Locating…'
+        : // Claiming "Current location" when we never got one is a lie the user
+          // can act on; say the location is unset instead.
+          'Set location';
 
   return (
     <div data-testid="home-page">
-      <AppHeader
-        onLocationClick={() => location.status !== 'granted' && requestLocation()}
-      />
+      <AppHeader />
 
       <div style={{ padding: '18px 16px 0' }}>
         {firstName && (
@@ -122,16 +133,29 @@ export default function HomePage() {
             <StationCardSkeleton />
           </div>
         ) : stations.length === 0 ? (
-          <EmptyState
-            icon={<SearchX size={26} />}
-            title="No stations match"
-            text="Try widening your filters or distance to see more CNG stations."
-            actionLabel="Reset filters"
-            onAction={() => {
-              setFilters({});
-              setSort('nearest');
-            }}
-          />
+          // With no filters applied there is nothing to "widen" — the area
+          // genuinely has no stations in range, and saying so avoids sending the
+          // user to a filter sheet that cannot help.
+          hasActiveFilters ? (
+            <EmptyState
+              icon={<SearchX size={26} />}
+              title="No stations match"
+              text="Try widening your filters or distance to see more CNG stations."
+              actionLabel="Reset filters"
+              onAction={() => {
+                setFilters({});
+                setSort('nearest');
+              }}
+            />
+          ) : (
+            <EmptyState
+              icon={<SearchX size={26} />}
+              title="No CNG stations nearby"
+              text={`We couldn't find any stations within ${Math.round(
+                NEARBY_RADIUS_M / 1000,
+              )} km of ${locLabel}. Try a different area.`}
+            />
+          )
         ) : (
           <div className="list">
             {stations.map((s) => (

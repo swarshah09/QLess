@@ -62,12 +62,19 @@ export const StationService = {
     const origin = query.origin ?? DEFAULT_COORDS;
     const sort = query.sort ?? 'nearest';
 
+    // The distance filter is applied client-side below (the backend has no
+    // maxDistanceKm parameter), so the FETCH radius must be at least as wide
+    // as the filter or a value beyond the default radius would silently
+    // return nothing new — the filter would appear to do nothing.
+    const filterRadiusM = (query.filters?.maxDistanceKm ?? 0) * 1000;
+    const radius = Math.max(NEARBY_RADIUS_M, filterRadiusM);
+
     const result = await apiRequest<{ stations: ApiStation[] }>('/stations/nearby', {
       auth: false, // Guest-accessible; the token is attached when present.
       query: {
         latitude: origin.lat,
         longitude: origin.lng,
-        radius: NEARBY_RADIUS_M,
+        radius,
         sort: SORT_MAP[sort],
         limit: 50,
         ...toBackendFilters(query.filters),
