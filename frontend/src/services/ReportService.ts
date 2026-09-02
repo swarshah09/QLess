@@ -20,6 +20,7 @@ interface ApiSubmitResult {
   locationVerified: boolean;
   source: string;
   distanceToStationM: number | null;
+  qpoints?: { awarded: number; byKind: Record<string, number> };
 }
 
 /** Re-thrown so the UI can show a useful message for throttling. */
@@ -54,8 +55,15 @@ export const ReportService = {
    * Primary "Update Status" entry point.
    *
    * `coords` is optional but strongly preferred: submitting from within the
-   * station's geofence upgrades the report to VERIFIED_NEARBY_USER, which the
-   * backend weights considerably higher.
+   * station's geofence upgrades the report to VERIFIED_NEARBY_USER (or GUEST,
+   * if unauthenticated), which the backend weights considerably higher — and
+   * for a logged-in user, is also required to earn QPoints.
+   *
+   * `asGuest` is true only when the user explicitly chose "Continue without
+   * login" on the login prompt. It is NOT simply "no token exists" — a
+   * logged-in user's submission must always send their token so the backend
+   * can attribute reputation and QPoints to them; only an explicit guest
+   * choice skips it.
    */
   async submitStationReport(input: {
     stationId: string;
@@ -64,7 +72,8 @@ export const ReportService = {
     pressureValue?: number | null;
     verifiedNearby: boolean;
     coords?: Coordinates | null;
-  }): Promise<StationReport> {
+    asGuest?: boolean;
+  }): Promise<StationReport & { qpoints: { awarded: number; byKind: Record<string, number> } }> {
     const body: Record<string, unknown> = {};
 
     // "UNKNOWN" is a real answer and is sent through as-is; the backend stores
@@ -87,7 +96,7 @@ export const ReportService = {
     try {
       const result = await apiRequest<ApiSubmitResult>(
         `/stations/${input.stationId}/reports`,
-        { method: 'POST', body },
+        { method: 'POST', body, auth: !input.asGuest },
       );
 
       return {
@@ -104,6 +113,7 @@ export const ReportService = {
         verifiedNearby: result.locationVerified,
         reportedAt: new Date().toISOString(),
         source: 'community',
+        qpoints: result.qpoints ?? { awarded: 0, byKind: {} },
       };
     } catch (error) {
       return rethrow(error);

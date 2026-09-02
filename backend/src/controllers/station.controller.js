@@ -73,12 +73,18 @@ module.exports = {
     sendSuccess(res, { station });
   },
 
-  /** Any authenticated user — no operator assignment required. */
+  /**
+   * Any user, including a guest — no operator assignment required. `req.user`
+   * is undefined for a guest (optionalAuthenticate never rejects), so it is
+   * normalized to `null` here rather than passed through as `undefined`,
+   * matching what reportService.submit's null-checks expect.
+   */
   async submitReport(req, res) {
     const result = await reportService.submit({
       stationId: req.params.stationId,
-      reporter: req.user,
+      reporter: req.user ?? null,
       input: req.body,
+      guestIp: req.user ? null : req.ip,
     });
     sendCreated(res, result);
   },

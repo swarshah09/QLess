@@ -131,7 +131,7 @@ approximate (straight-line at an assumed city speed) — label it as such.
 
 ## Report submission
 
-Any authenticated `USER`. **No operator assignment needed.**
+Any `USER` — **and guests too.** No operator assignment needed either way.
 
 ```
 POST /stations/:stationId/reports
@@ -140,23 +140,89 @@ POST /stations/:stationId/reports
   "availability": "AVAILABLE", // optional
   "pressureValue": 205,        // optional
   "pressureUnit": "BAR",       // optional
-  "latitude": 23.0365,         // optional, but see below
+  "latitude": 23.0365,         // required in practice — see below
   "longitude": 72.5611
 }
 ```
 
-All fields optional; send at least one. Response includes `locationVerified`,
-`source` and `distanceToStationM`, plus the recomputed `status`.
+Of the report fields, send at least one. Response includes `locationVerified`,
+`source`, `distanceToStationM` and `qpoints`, plus the recomputed `status`.
 
-- **Send coordinates when you have them.** Within 200 m the report is stored as
-  `VERIFIED_NEARBY_USER` and weighted higher; outside, `NORMAL_USER`.
+- **Coordinates are effectively required.** A normal user or guest must be
+  within **300 m** of the station or the request is rejected outright with
+  `403 OUT_OF_RANGE` (`details[].distanceToStationM` when coordinates were
+  sent; omitted when they weren't). No coordinates at all is treated the same
+  as being too far — there is no way to confirm proximity without them.
+  Operators (via their own `/operator-update` endpoint) and admins are exempt.
+- **Within 200 m** (a separate, looser check purely for trust weighting) the
+  report is additionally stored as `VERIFIED_NEARBY_USER` (or `GUEST` if
+  unauthenticated); between 200 m and 300 m it's accepted but weighted as
+  `NORMAL_USER`/`GUEST`.
 - **Never send `locationVerified`** — the schema is strict and will reject the
   whole request with `422`. Verification is computed server-side.
-- `"UNKNOWN"` is a valid, encouraged answer. Offer it in the UI.
+- `"UNKNOWN"` is a valid, encouraged answer for queue/availability. Offer it
+  in the UI — it does not affect the location requirement above.
 
 **Throttling:** 10 s between any two reports, 60 s per station, 6/hour per
 station, 30/hour overall. Handle `429 REPORT_COOLDOWN` (has
 `details[].retryAfterSeconds`) and `409 DUPLICATE_REPORT`.
+
+**Guests may submit too.** Omit the `Authorization` header entirely — no
+account is required. Guest reports are never rejected for lacking an account,
+but they ARE subject to the same 300 m proximity requirement as a logged-in
+user above — that check is about location, not identity. A guest within range
+weighs as `source: "GUEST"` and **never earns QPoints**. Guest throttling
+mirrors the account-based rules above exactly, just keyed by IP address
+instead of account.
+
+**QPoints (logged-in only).** A successful, non-duplicate, non-throttled
+report from a signed-in `USER` earns QPoints, returned in the response as
+`qpoints: { awarded, byKind }`:
+
+| Update kind  | Points |
+|---|---|
+| Queue        | +10 |
+| Availability | +3  |
+| Pressure     | +2  |
+
+A combined submission earns each eligible kind's points independently — no
+combo bonus, no penalty for reporting fewer. There's no separate points
+distance check — the 300 m submission requirement above already guarantees
+proximity, so nothing beyond it can reach the points logic at all. The same
+user/station/kind can only earn points once per 30 minutes, **unless** the new
+value genuinely differs from their immediately-previous report of that kind at
+that station — a changed value earns immediately even inside the window; an
+exact repeat earns 0 points (the report is still stored either way). QPoints
+expire 9 months after being earned.
+
+```
+GET /qpoints/me?page=&limit=
+```
+
+Authenticated only. Returns your current point total (already excluding
+anything older than 9 months), a breakdown by update kind, and recent ledger
+history — including any admin penalties, each with its `reason`.
+
+```jsonc
+{
+  "success": true,
+  "data": {
+    "qpoints": {
+      "total": 45,
+      "byKind": { "queue": 30, "availability": 9, "pressure": 6 },
+      "expiresAfterMonths": 9,
+      "history": [
+        {
+          "id": "…", "type": "EARNED", "points": 10, "kind": "QUEUE",
+          "stationId": "…", "stationName": "Shree CNG", "reason": null,
+          "createdAt": "2026-08-30T10:00:00.000Z"
+        }
+      ],
+      "totalHistoryCount": 1
+    }
+  }
+}
+```
 
 ## "I'm Here" visits
 
@@ -295,6 +361,8 @@ GET    /admin/stations/:stationId/operators
 POST   /admin/stations/:stationId/operators     { userId, role }
 DELETE /admin/stations/:stationId/operators/:userId
 
+POST   /admin/qpoints/:reportId/penalize        { reason }              ← reason required
+
 GET    /admin/reports/suspicious                ?page&limit&sinceHours
 GET    /admin/stats/reports                     ?sinceHours
 GET    /admin/stats/notifications               ?sinceHours
@@ -305,6 +373,12 @@ GET    /admin/audit-logs                        ?page&limit&action&entityType
 Stations are **enabled/disabled, never deleted** — deleting would orphan
 historical reports. Manual overrides record admin identity, reason and timestamp,
 and are written as `ADMIN`-sourced reports rather than rewriting history.
+
+The QPoints penalty deducts a fixed 10 points from whoever submitted
+`reportId`, as a manual fraud/manipulation action — there is no automatic
+fraud detection. `reportId` must belong to a report from a logged-in user
+(guest reports have nothing to penalize, and the endpoint returns `400` if
+you try). Recorded in the audit log as `QPOINTS_PENALIZED`.
 A user must hold `STATION_OPERATOR` before being assigned to a station.
 
 ## Error codes

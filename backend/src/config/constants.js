@@ -17,6 +17,7 @@ const REPORT_SOURCES = [
   'OPERATOR',
   'VERIFIED_NEARBY_USER',
   'NORMAL_USER',
+  'GUEST',
   'ADMIN',
   'SYSTEM_ESTIMATE',
 ];
@@ -26,6 +27,10 @@ const SOURCE_WEIGHTS = {
   ADMIN: 1,
   VERIFIED_NEARBY_USER: 0.7,
   NORMAL_USER: 0.35,
+  // An anonymous submitter has no reputation to be held accountable by, so a
+  // guest report can never outweigh an accountable NORMAL_USER's — it floors
+  // at the same weight as the platform's own least-trusted signal.
+  GUEST: 0.2,
   SYSTEM_ESTIMATE: 0.2,
 };
 
@@ -81,6 +86,65 @@ const REPORT_LIMITS = {
   maxReportsPerHour: 30,
   maxReportsPerStationPerHour: 6,
   duplicateWindowSeconds: 600,
+};
+
+/**
+ * Abuse controls for GUEST (unauthenticated) reports, keyed by IP since that
+ * is the only identity a guest has. Deliberately a separate object from
+ * REPORT_LIMITS (not merged in) so the two can be tuned independently — an IP
+ * is coarser than an account (it can be shared by a household or office), but
+ * starts out with the same numbers; there's no evidence yet that guests need
+ * stricter limits than accounts do.
+ */
+const GUEST_REPORT_LIMITS = {
+  perStationCooldownSeconds: 60,
+  globalCooldownSeconds: 10,
+  maxReportsPerHour: 30,
+  maxReportsPerStationPerHour: 6,
+  duplicateWindowSeconds: 600,
+};
+
+/**
+ * Hard eligibility gate for SUBMITTING a report at all — distinct from
+ * env.LOCATION_VERIFICATION_RADIUS_M (200 m, confidence-weighting only, never
+ * blocks submission). A reporter must supply coordinates AND be within this
+ * radius, or the report is rejected outright — no coordinates at all is
+ * treated the same as being too far, since there is no way to confirm
+ * proximity without them. Operators (on their own station) and admins are
+ * exempt, same as they are for throttling — they are trusted by role.
+ *
+ * This is also, by construction, the QPoints eligibility radius: since no
+ * report can be submitted at all beyond this distance, there is no separate
+ * points-specific distance check to make — successfully submitting already
+ * guarantees the reporter was within range.
+ */
+const REPORT_SUBMISSION_RADIUS_M = 300;
+
+/**
+ * QPoints rewards. Logged-in only — guests never earn points (see
+ * report.service.js). Award amounts are PER ELIGIBLE KIND in one submission —
+ * a combined queue+availability+pressure update earns all three independently,
+ * no combo bonus, no penalty for reporting fewer.
+ */
+const QPOINTS = {
+  awardByKind: {
+    QUEUE: 10,
+    AVAILABILITY: 3,
+    PRESSURE: 2,
+  },
+  /**
+   * Per user + station + kind: earning points again for the SAME kind at the
+   * SAME station requires either this many minutes to pass, or the new value
+   * to differ from the user's immediately-previous report of that kind at
+   * that station. An exact repeat inside the window earns 0 points but the
+   * report is still stored — this cooldown only ever gates points, never
+   * storage.
+   */
+  perKindCooldownMinutes: 30,
+  /** Points earned this long ago no longer count toward the visible total. */
+  expiryMonths: 9,
+  /** Manual admin fraud/manipulation penalty — see admin.service.js#penalizeQPoints. */
+  adminPenaltyPoints: 10,
 };
 
 const NOTIFICATIONS = {
@@ -174,6 +238,9 @@ module.exports = {
   WAIT_ESTIMATION,
   PRESSURE_DEFAULTS,
   REPORT_LIMITS,
+  GUEST_REPORT_LIMITS,
+  REPORT_SUBMISSION_RADIUS_M,
+  QPOINTS,
   NOTIFICATIONS,
   RECOMMENDATION,
   GEO,

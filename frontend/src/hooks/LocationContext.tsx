@@ -60,17 +60,21 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // If the user already granted geolocation, acquire the real fix now. Without
-    // this the app sat at status 'unknown' with coords null, and every station
-    // query fell back to the default city until the user pressed the button
-    // again — the reason nearby results were computed from the wrong origin.
+    // Current location is the default experience, not an opt-in: acquire it on
+    // load whenever the browser will allow it. If permission was already
+    // granted this resolves silently; if it has never been asked ('prompt'),
+    // this is what triggers the native browser prompt on first visit — we used
+    // to wait for the user to notice and tap "Enable", which meant every fresh
+    // session (and every browser that had never been asked) silently ranked
+    // stations from the default city instead of the user's real position. Only
+    // a firm 'denied' skips this, since re-asking then is not possible and
+    // would just stall the loading state for no reason.
     void (async () => {
       const permission = await LocationService.getPermissionState();
       if (cancelled) return;
 
-      // Not already granted: never prompt on load. Release the gate so guests
-      // still get results from the default origin.
-      if (permission !== 'granted') {
+      if (permission === 'denied') {
+        setLocation({ status: 'denied' });
         setResolving(false);
         return;
       }
@@ -82,10 +86,14 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       if (result.status === 'granted') {
         setLocation({ status: 'granted', coords: result.coords, label: result.label });
         void nameLocation(result.coords);
+      } else if (result.status === 'denied') {
+        setLocation({ status: 'denied' });
       } else {
-        // A silent background attempt should not push the user into an error
-        // screen they never asked for; leave the prompt in place instead.
-        setLocation((prev) => (prev.status === 'loading' ? { status: 'unknown' } : prev));
+        // Not a permission problem (timeout, unavailable, insecure context) —
+        // leave the manual "Enable"/"Choose location" prompt in place rather
+        // than a dead-end error screen for a background attempt the user
+        // never directly triggered.
+        setLocation({ status: 'unknown' });
       }
       setResolving(false);
     })();

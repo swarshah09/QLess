@@ -31,6 +31,11 @@ router.patch('/stations/:stationId/active', validate({ params: V.stationIdParam,
 // Manual override — the schema makes `reason` mandatory, and it is audited.
 router.post('/stations/:stationId/override', validate({ params: V.stationIdParam, body: V.overrideStatusSchema }), asyncHandler(controller.overrideStatus));
 
+// --- QPoints moderation ---
+// Manual only — no automatic fraud detection. The schema makes `reason`
+// mandatory, and it is audited, exactly like the station override above.
+router.post('/qpoints/:reportId/penalize', validate({ params: V.reportIdParam, body: V.penalizeQPointsSchema }), asyncHandler(controller.penalizeQPoints));
+
 // --- Operator assignments ---
 router.get('/stations/:stationId/operators', validate({ params: V.stationIdParam }), asyncHandler(controller.listStationOperators));
 router.post('/stations/:stationId/operators', validate({ params: V.stationIdParam, body: V.assignOperatorSchema }), asyncHandler(controller.assignOperator));

@@ -3,9 +3,17 @@
 const Report = require('../models/Report');
 const Station = require('../models/Station');
 const User = require('../models/User');
+const QPointsEvent = require('../models/QPointsEvent');
 const env = require('../config/env');
-const { REPORT_LIMITS, ROLES } = require('../config/constants');
+const {
+  REPORT_LIMITS,
+  GUEST_REPORT_LIMITS,
+  REPORT_SUBMISSION_RADIUS_M,
+  QPOINTS,
+  ROLES,
+} = require('../config/constants');
 const { ApiError } = require('../utils/ApiError');
+const logger = require('../config/logger');
 const {
   haversineDistanceM,
   isPlausiblePressure,
@@ -26,8 +34,16 @@ const realtime = require('../sockets/realtime');
 /**
  * Decides the trust level of a report. The client sends coordinates; it does
  * NOT get to say whether they count as verified.
+ *
+ * `isGuest` covers an unauthenticated submitter (`role` is undefined for a
+ * guest, since there is no reporter object to read a role from). A guest's
+ * `source` is always the GUEST floor, never VERIFIED_NEARBY_USER — being
+ * physically close does not buy an anonymous submitter the same trust tier as
+ * an accountable one — but `locationVerified` still varies correctly with
+ * distance, independent of `source`, so confidence weighting still reflects
+ * proximity.
  */
-function verifyLocation({ role, actingAsOperator, coords, station }) {
+function verifyLocation({ role, isGuest = false, actingAsOperator, coords, station }) {
   const stationCoords = {
     latitude: station.location.coordinates[1],
     longitude: station.location.coordinates[0],
@@ -46,11 +62,14 @@ function verifyLocation({ role, actingAsOperator, coords, station }) {
     return { locationVerified: true, source: 'ADMIN', distanceToStationM, coords };
   }
 
+  const fallbackSource = isGuest ? 'GUEST' : 'NORMAL_USER';
+  const verifiedSource = isGuest ? 'GUEST' : 'VERIFIED_NEARBY_USER';
+
   // No coordinates: still accepted and stored, but not a first-hand sighting.
   if (!coords || distanceToStationM === null) {
     return {
       locationVerified: false,
-      source: 'NORMAL_USER',
+      source: fallbackSource,
       distanceToStationM: null,
       coords: null,
     };
@@ -59,23 +78,34 @@ function verifyLocation({ role, actingAsOperator, coords, station }) {
   const within = distanceToStationM <= env.LOCATION_VERIFICATION_RADIUS_M;
   return {
     locationVerified: within,
-    source: within ? 'VERIFIED_NEARBY_USER' : 'NORMAL_USER',
+    source: within ? verifiedSource : fallbackSource,
     distanceToStationM,
     coords,
   };
 }
 
 /**
- * Abuse controls, keyed per ACCOUNT and per STATION.
+ * Abuse controls, keyed per ACCOUNT and per STATION — or, for a guest, per IP
+ * and per STATION (a guest has no account to key on; IP is the only identity
+ * available). `identity` is `{ userId }` for a logged-in reporter or
+ * `{ guestIp }` for a guest; every query below builds its base filter from
+ * whichever key is present and reads limits from the matching table, but the
+ * cooldown/cap/duplicate-window MATH is identical either way — only the scope
+ * changes, not the rules.
  *
- * Database-backed rather than IP-based on purpose: one user on mobile data
- * moves between IPs and a whole office shares one, so an IP key cannot express
- * the limit that matters. The IP limiter still runs in front as a coarse guard.
+ * Database-backed rather than IP-based for logged-in users on purpose: one
+ * user on mobile data moves between IPs and a whole office shares one, so an
+ * IP key cannot express the limit that matters for an account. The coarse
+ * express-rate-limit IP guard still runs in front of both cases regardless.
  */
-async function assertNotThrottled(userId, stationId, payload, now = new Date()) {
+async function assertNotThrottled(identity, stationId, payload, now = new Date()) {
+  const isGuest = 'guestIp' in identity;
+  const limits = isGuest ? GUEST_REPORT_LIMITS : REPORT_LIMITS;
+  const scopeFilter = isGuest ? { submitterIp: identity.guestIp } : { user: identity.userId };
+
   const [lastAnywhere, lastForStation] = await Promise.all([
-    Report.findOne({ user: userId }).sort({ createdAt: -1 }).select('createdAt').lean(),
-    Report.findOne({ user: userId, station: stationId })
+    Report.findOne(scopeFilter).sort({ createdAt: -1 }).select('createdAt').lean(),
+    Report.findOne({ ...scopeFilter, station: stationId })
       .sort({ createdAt: -1 })
       .select('createdAt')
       .lean(),
@@ -84,7 +114,7 @@ async function assertNotThrottled(userId, stationId, payload, now = new Date()) 
   const secondsSince = (date) => (now.getTime() - new Date(date).getTime()) / 1000;
 
   if (lastAnywhere) {
-    const wait = Math.ceil(REPORT_LIMITS.globalCooldownSeconds - secondsSince(lastAnywhere.createdAt));
+    const wait = Math.ceil(limits.globalCooldownSeconds - secondsSince(lastAnywhere.createdAt));
     if (wait > 0) {
       throw ApiError.reportCooldown(`Please wait ${wait}s before submitting another report`, wait);
     }
@@ -92,7 +122,7 @@ async function assertNotThrottled(userId, stationId, payload, now = new Date()) 
 
   if (lastForStation) {
     const wait = Math.ceil(
-      REPORT_LIMITS.perStationCooldownSeconds - secondsSince(lastForStation.createdAt),
+      limits.perStationCooldownSeconds - secondsSince(lastForStation.createdAt),
     );
     if (wait > 0) {
       throw ApiError.reportCooldown(`You reported this station recently — please wait ${wait}s`, wait);
@@ -101,21 +131,21 @@ async function assertNotThrottled(userId, stationId, payload, now = new Date()) 
 
   const hourAgo = new Date(now.getTime() - 3600000);
   const [stationCount, totalCount] = await Promise.all([
-    Report.countDocuments({ user: userId, station: stationId, createdAt: { $gte: hourAgo } }),
-    Report.countDocuments({ user: userId, createdAt: { $gte: hourAgo } }),
+    Report.countDocuments({ ...scopeFilter, station: stationId, createdAt: { $gte: hourAgo } }),
+    Report.countDocuments({ ...scopeFilter, createdAt: { $gte: hourAgo } }),
   ]);
 
   // A submission writes up to 3 documents, so the caps are scaled accordingly.
-  if (stationCount >= REPORT_LIMITS.maxReportsPerStationPerHour * 3) {
+  if (stationCount >= limits.maxReportsPerStationPerHour * 3) {
     throw ApiError.reportCooldown('You have reported this station too many times in the past hour');
   }
-  if (totalCount >= REPORT_LIMITS.maxReportsPerHour * 3) {
+  if (totalCount >= limits.maxReportsPerHour * 3) {
     throw ApiError.reportCooldown('You have submitted too many reports in the past hour');
   }
 
   // Checked last: an identical repeat is the least severe case, and saying so
   // specifically is more useful to an honest client than a generic cooldown.
-  const duplicateSince = new Date(now.getTime() - REPORT_LIMITS.duplicateWindowSeconds * 1000);
+  const duplicateSince = new Date(now.getTime() - limits.duplicateWindowSeconds * 1000);
   const clauses = [];
   if (payload.queueLabel) {
     clauses.push({ kind: 'QUEUE', queueLabel: payload.queueLabel });
@@ -128,7 +158,7 @@ async function assertNotThrottled(userId, stationId, payload, now = new Date()) 
     const matches = await Promise.all(
       clauses.map((clause) =>
         Report.exists({
-          user: userId,
+          ...scopeFilter,
           station: stationId,
           createdAt: { $gte: duplicateSince },
           ...clause,
@@ -162,6 +192,83 @@ async function adjustReputation(userId, agreed) {
   await user.save();
 }
 
+/** Per-kind equality used by the points-cooldown "unless changed" rule. */
+function valuesEqualForKind(kind, previousReportDoc, newReportDoc) {
+  if (kind === 'QUEUE') return previousReportDoc.queueLabel === newReportDoc.queueLabel;
+  if (kind === 'AVAILABILITY') return previousReportDoc.availability === newReportDoc.availability;
+  if (kind === 'PRESSURE') return previousReportDoc.pressureValue === newReportDoc.pressureValue;
+  return true;
+}
+
+/**
+ * Awards QPoints for a just-created, logged-in, accepted submission.
+ *
+ * No distance check here: submit() already rejects anything beyond
+ * REPORT_SUBMISSION_RADIUS_M before a report can be created at all, so
+ * reaching this function already guarantees the reporter was in range — a
+ * second distance gate here would be unreachable dead logic.
+ *
+ * Applies, independently per kind, the per-kind cooldown: earning again for
+ * the same user+station+kind requires either QPOINTS.perKindCooldownMinutes to
+ * pass, or the new value to genuinely differ from the immediately-previous one
+ * for that kind — an exact repeat inside the window earns 0 points, but the
+ * report itself is ALWAYS stored regardless of what this function decides.
+ *
+ * A failure here is caught by the caller and logged, never allowed to fail an
+ * already-successful report — matches the platform's existing fire-and-forget
+ * pattern for reputation/notifications side effects.
+ */
+async function awardQPoints({ userId, stationId, createdReports, now = new Date() }) {
+  const byKind = {};
+  let totalAwarded = 0;
+
+  for (const report of createdReports) {
+    const kind = report.kind;
+    const award = QPOINTS.awardByKind[kind];
+    if (!award) continue;
+
+    // The user's immediately-previous EARNED ledger entry for this exact
+    // (user, station, kind) — used both for the cooldown window AND to check
+    // whether the new value differs from it.
+    const previousEvent = await QPointsEvent.findOne({
+      user: userId,
+      station: stationId,
+      kind,
+      type: 'EARNED',
+    })
+      .sort({ createdAt: -1 })
+      .populate({ path: 'report', select: 'queueLabel availability pressureValue' })
+      .lean();
+
+    const cooldownActive =
+      previousEvent &&
+      (now.getTime() - new Date(previousEvent.createdAt).getTime()) / 60000 <
+        QPOINTS.perKindCooldownMinutes;
+
+    const valueChanged =
+      !previousEvent?.report || !valuesEqualForKind(kind, previousEvent.report, report);
+
+    // Exact repeat inside the window: 0 points for this kind. Everything else
+    // (first-ever report of this kind, window elapsed, or a changed value
+    // even inside the window) earns.
+    if (cooldownActive && !valueChanged) continue;
+
+    await QPointsEvent.create({
+      user: userId,
+      station: stationId,
+      report: report._id,
+      kind,
+      type: 'EARNED',
+      points: award,
+    });
+
+    byKind[kind.toLowerCase()] = award;
+    totalAwarded += award;
+  }
+
+  return { totalAwarded, byKind };
+}
+
 const reportService = {
   /**
    * Records an observation and refreshes the derived status.
@@ -170,7 +277,7 @@ const reportService = {
    * know nothing about pressure. Every field is optional; the only requirement
    * is that the submission says *something*.
    */
-  async submit({ stationId, reporter, input, actingAsOperator = false }) {
+  async submit({ stationId, reporter, input, actingAsOperator = false, guestIp = null }) {
     const station = await Station.findById(stationId);
     if (!station) throw ApiError.notFound('Station not found');
     if (!station.active && !actingAsOperator) {
@@ -215,15 +322,40 @@ const reportService = {
         : null;
 
     const verification = verifyLocation({
-      role: reporter.role,
+      role: reporter ? reporter.role : undefined,
+      isGuest: reporter === null,
       actingAsOperator,
       coords,
       station,
     });
 
+    // Hard eligibility gate: unlike locationVerified/QPoints eligibility above
+    // (which only ever affected trust weighting or points), a report from
+    // outside REPORT_SUBMISSION_RADIUS_M — or with no coordinates at all,
+    // since proximity cannot be confirmed either way — is rejected outright.
+    // Operators and admins are exempt: they are trusted by role, same as for
+    // throttling below.
+    if (!actingAsOperator && (!reporter || reporter.role !== ROLES.ADMIN)) {
+      if (
+        verification.distanceToStationM === null ||
+        verification.distanceToStationM > REPORT_SUBMISSION_RADIUS_M
+      ) {
+        throw ApiError.outOfRange(
+          verification.distanceToStationM === null
+            ? `You must share your location to report this station (within ${REPORT_SUBMISSION_RADIUS_M}m)`
+            : `You must be within ${REPORT_SUBMISSION_RADIUS_M}m of this station to report it — you are ${verification.distanceToStationM}m away`,
+          verification.distanceToStationM,
+        );
+      }
+    }
+
     // Operators are exempt: a busy forecourt changes fast and they must keep up.
-    if (!actingAsOperator && reporter.role !== ROLES.ADMIN) {
-      await assertNotThrottled(reporter.id, stationId, {
+    // A guest (reporter === null) is never an operator or admin, so the guard
+    // below always falls through to throttling for them, just IP-keyed instead
+    // of account-keyed.
+    if (!actingAsOperator && (!reporter || reporter.role !== ROLES.ADMIN)) {
+      const identity = reporter ? { userId: reporter.id } : { guestIp };
+      await assertNotThrottled(identity, stationId, {
         queueLabel: reportsQueue ? queue.label : null,
         availability: reportsAvailability ? input.availability : null,
       });
@@ -244,7 +376,8 @@ const reportService = {
 
     const base = {
       station: stationId,
-      user: reporter.id,
+      user: reporter ? reporter.id : null,
+      submitterIp: reporter ? null : guestIp,
       source: verification.source,
       note: input.note ?? null,
       ...geo,
@@ -288,8 +421,27 @@ const reportService = {
     realtime.emitStationUpdated(updated);
     notificationService.evaluateStation(stationId).catch(() => {});
 
-    if (!actingAsOperator && reporter.role === ROLES.USER) {
+    // Both reputation and QPoints are earned only by a signed-in USER acting
+    // as themselves — a guest has no account to hold either on, and an
+    // operator/admin's own report is already trusted by role, not by these
+    // accountability mechanisms.
+    let qpoints = { totalAwarded: 0, byKind: {} };
+    if (!actingAsOperator && reporter && reporter.role === ROLES.USER) {
       adjustReputation(reporter.id, verification.locationVerified).catch(() => {});
+
+      qpoints = await awardQPoints({
+        userId: reporter.id,
+        stationId,
+        createdReports: created,
+      }).catch((err) => {
+        // A points-award failure must never fail an already-successful report.
+        logger.error('QPoints award failed', {
+          error: err.message,
+          userId: reporter.id,
+          stationId,
+        });
+        return { totalAwarded: 0, byKind: {} };
+      });
     }
 
     const idsByKind = {};
@@ -305,6 +457,7 @@ const reportService = {
       source: verification.source,
       distanceToStationM: verification.distanceToStationM,
       status: stationService_serializeStatus(updated),
+      qpoints: { awarded: qpoints.totalAwarded, byKind: qpoints.byKind },
     };
   },
 

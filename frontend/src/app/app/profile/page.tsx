@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { AuthSheet } from '@/features/auth/AuthSheet';
 import { LocationPickerSheet } from '@/features/location/LocationPickerSheet';
+import { QPointsCard } from '@/features/qpoints/QPointsCard';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
@@ -83,6 +84,11 @@ export default function ProfilePage() {
           )}
         </div>
       </div>
+
+      {/* `user` (not merely !isGuest) is the right guard here — a fresh app
+          load with no choice made yet is `isGuest: false, user: null`, and
+          there is no QPoints ledger to show in that state either. */}
+      {user && <QPointsCard />}
 
       {/* Signed-out users get both paths side by side, so "already registered"
           and "new here" are each one tap away. */}

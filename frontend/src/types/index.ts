@@ -75,6 +75,23 @@ export interface User {
   phone?: string;
 }
 
+export interface QPointsSummary {
+  total: number;
+  byKind: { queue: number; availability: number; pressure: number };
+  expiresAfterMonths: number;
+  history: Array<{
+    id: string;
+    type: 'EARNED' | 'ADMIN_PENALTY';
+    points: number;
+    kind: 'QUEUE' | 'AVAILABILITY' | 'PRESSURE' | null;
+    stationId: string | null;
+    stationName: string | null;
+    reason: string | null;
+    createdAt: string;
+  }>;
+  totalHistoryCount: number;
+}
+
 export type AlertStatus = 'ACTIVE' | 'PAUSED' | 'TRIGGERED';
 
 export interface NotificationConditions {

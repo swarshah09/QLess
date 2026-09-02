@@ -85,6 +85,17 @@ module.exports = {
     sendSuccess(res, result);
   },
 
+  /** Manual QPoints penalty — records admin identity, reason and timestamp. */
+  async penalizeQPoints(req, res) {
+    const result = await adminService.penalizeQPoints(
+      req.params.reportId,
+      req.body.reason,
+      req.user,
+      context(req),
+    );
+    sendSuccess(res, result);
+  },
+
   // --- Operator assignments ---
   async listStationOperators(req, res) {
     const operators = await adminService.listStationOperators(req.params.stationId);

@@ -3,6 +3,7 @@ import type {
   Confidence,
   NotificationConditions,
   NotificationRule,
+  QPointsSummary,
   QueueRange,
   Station,
 } from '@/types';
@@ -177,6 +178,42 @@ export function mapRule(api: ApiNotificationRule, fallbackName = 'Station'): Not
         : 'ACTIVE',
     createdAt: api.createdAt,
     triggeredAt: api.lastTriggeredAt,
+  };
+}
+
+export interface ApiQPointsSummary {
+  total: number;
+  byKind: { queue: number; availability: number; pressure: number };
+  expiresAfterMonths: number;
+  history: Array<{
+    id: string;
+    type: string;
+    points: number;
+    kind: string | null;
+    stationId: string | null;
+    stationName: string | null;
+    reason: string | null;
+    createdAt: string;
+  }>;
+  totalHistoryCount: number;
+}
+
+export function mapQPointsSummary(api: ApiQPointsSummary): QPointsSummary {
+  return {
+    total: api.total,
+    byKind: api.byKind,
+    expiresAfterMonths: api.expiresAfterMonths,
+    history: api.history.map((h) => ({
+      id: h.id,
+      type: h.type as QPointsSummary['history'][number]['type'],
+      points: h.points,
+      kind: h.kind as QPointsSummary['history'][number]['kind'],
+      stationId: h.stationId,
+      stationName: h.stationName,
+      reason: h.reason,
+      createdAt: h.createdAt,
+    })),
+    totalHistoryCount: api.totalHistoryCount,
   };
 }
 

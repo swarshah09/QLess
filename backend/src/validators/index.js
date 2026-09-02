@@ -284,6 +284,11 @@ const updateStationAdminSchema = createStationSchema
 
 const setStationActiveSchema = z.object({ active: z.boolean(), reason }).strict();
 
+const reportIdParam = z.object({ reportId: objectId });
+
+/** `reason` is required, mirroring setStationActiveSchema/overrideStatusSchema. */
+const penalizeQPointsSchema = z.object({ reason }).strict();
+
 /** `reason` is required by the schema, so an unreasoned override never reaches the service. */
 const overrideStatusSchema = z
   .object({
@@ -371,6 +376,8 @@ module.exports = {
   updateStationAdminSchema,
   setStationActiveSchema,
   overrideStatusSchema,
+  reportIdParam,
+  penalizeQPointsSchema,
   assignOperatorSchema,
   statsQuerySchema,
   suspiciousQuerySchema,

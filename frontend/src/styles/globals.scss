@@ -1697,6 +1697,212 @@ h4 {
   color: var(--text-secondary);
 }
 
+// ---- QPoints reward card ------------------------------------
+// Deliberately distinct from the plain .menu rows above it — this is the
+// "reward" moment on the profile page, so it reads as a small hero rather
+// than another list item. Built entirely from existing tokens; no new colors.
+.qpoints-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--primary-tint), var(--card));
+  box-shadow: var(--shadow-sm);
+}
+.qpoints-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary-tint);
+  color: var(--primary-strong);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.qpoints-card__body {
+  min-width: 0;
+}
+.qpoints-card__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.qpoints-card__total {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  font-size: 32px;
+  color: var(--primary-strong);
+  line-height: 1.1;
+}
+.qpoints-card__breakdown {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+}
+
+// ---- Location gate --------------------------------------------
+// Full-page "enable location" prompt shown in place of a page's real content
+// whenever there is no usable location yet. Borrows the motion language of
+// the landing hero (radar rings, floating chips) but built entirely from
+// theme tokens, since — unlike the landing page's fixed dark hero — this
+// renders inside the app shell in whichever theme the user has chosen.
+.locgate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 28px 40px;
+  gap: 6px;
+  min-height: 70vh;
+}
+
+.locgate__hero {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 22px;
+}
+
+.locgate__radar {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.locgate__ring {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1.5px solid var(--primary);
+  opacity: 0.5;
+  animation: locgate-radar 3.2s ease-out infinite;
+}
+.locgate__ring:nth-child(2) {
+  animation-delay: 1s;
+}
+.locgate__ring:nth-child(3) {
+  animation-delay: 2s;
+}
+@keyframes locgate-radar {
+  0% {
+    transform: scale(0.5);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.locgate__badge {
+  position: relative;
+  z-index: 1;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+// small floating station chips drifting either side of the radar, echoing
+// the landing page's hero without duplicating its markup or dark palette.
+.locgate__pin {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  animation: locgate-float 4.5s ease-in-out infinite;
+
+  svg {
+    color: var(--primary);
+  }
+}
+.locgate__pin--a {
+  top: 4px;
+  left: -18px;
+}
+.locgate__pin--b {
+  bottom: 8px;
+  right: -22px;
+  animation-delay: 1.6s;
+}
+@keyframes locgate-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.locgate__title {
+  font-family: var(--font-heading);
+  font-size: 21px;
+  font-weight: 800;
+  margin: 0 0 8px;
+}
+
+.locgate__text {
+  color: var(--text-secondary);
+  font-size: 14.5px;
+  line-height: 1.5;
+  max-width: 320px;
+  margin: 0 0 28px;
+}
+
+.locgate__actions {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.locgate__manual {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px;
+  cursor: pointer;
+}
+
 // ---- misc ----
 .divider {
   height: 1px;

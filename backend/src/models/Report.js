@@ -27,8 +27,10 @@ const reportSchema = new mongoose.Schema(
       ref: 'Station',
       required: true,
     },
-    /** Null for a SYSTEM_ESTIMATE. */
+    /** Null for a SYSTEM_ESTIMATE or a guest (unauthenticated) report — see submitterIp. */
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    /** Populated only when `user` is null and the reporter is a guest — never set alongside `user`. */
+    submitterIp: { type: String, default: null, maxlength: 64 },
 
     kind: {
       type: String,
@@ -71,6 +73,9 @@ reportSchema.index({ station: 1, createdAt: -1 });
 // Throttling reads "this user's recent reports", globally and per station.
 reportSchema.index({ user: 1, createdAt: -1 });
 reportSchema.index({ user: 1, station: 1, createdAt: -1 });
+// Guest throttling reads "this IP's recent reports for this station" — mirrors
+// the user+station index above for the case where there is no user.
+reportSchema.index({ submitterIp: 1, station: 1, createdAt: -1 });
 // Admin moderation scans by source over a recent window.
 reportSchema.index({ source: 1, createdAt: -1 });
 reportSchema.index({ station: 1, kind: 1, createdAt: -1 });

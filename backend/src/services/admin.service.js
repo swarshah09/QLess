@@ -6,6 +6,7 @@ const NotificationRule = require('../models/NotificationRule');
 const PushSubscription = require('../models/PushSubscription');
 const RefreshSession = require('../models/RefreshSession');
 const Report = require('../models/Report');
+const QPointsEvent = require('../models/QPointsEvent');
 const Station = require('../models/Station');
 const StationOperator = require('../models/StationOperator');
 const User = require('../models/User');
@@ -284,6 +285,65 @@ const adminService = {
     });
 
     return stationService.serializeStation(station.toObject());
+  },
+
+  /**
+   * Manual fraud/manipulation penalty: deducts a fixed
+   * constants.QPOINTS.adminPenaltyPoints from the user who submitted
+   * `reportId`, as a new ADMIN_PENALTY ledger entry. Never mutates or deletes
+   * the earlier EARNED entry — the ledger stays append-only, exactly like
+   * Report itself. There is no automatic fraud detection; this is a manual-
+   * only action, and `reason` is mandatory (enforced by the Zod schema, same
+   * as setStationActive/overrideStatus).
+   */
+  async penalizeQPoints(reportId, reason, actor, context) {
+    const report = await Report.findById(reportId).select('user station');
+    if (!report) throw ApiError.notFound('Report not found');
+    if (!report.user) {
+      throw ApiError.badRequest(
+        'This report has no associated user to penalize (guest reports never earn points)',
+      );
+    }
+
+    const penaltyPoints = -constants.QPOINTS.adminPenaltyPoints;
+    const penalty = await QPointsEvent.create({
+      user: report.user,
+      station: report.station,
+      report: report._id,
+      kind: null,
+      type: 'ADMIN_PENALTY',
+      points: penaltyPoints,
+      reason,
+      adminUser: actor.id,
+    });
+
+    await audit(actor, context, {
+      action: 'QPOINTS_PENALIZED',
+      entityType: 'QPointsEvent',
+      entityId: String(penalty._id),
+      reason,
+      before: null,
+      after: {
+        userId: String(report.user),
+        reportId: String(report._id),
+        points: penaltyPoints,
+      },
+    });
+
+    logger.warn('QPoints penalty applied by admin', {
+      adminId: actor.id,
+      userId: String(report.user),
+      reportId: String(reportId),
+      points: penaltyPoints,
+      reason,
+    });
+
+    return {
+      penalized: true,
+      points: penaltyPoints,
+      userId: String(report.user),
+      reportId: String(reportId),
+    };
   },
 
   /**

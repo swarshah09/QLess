@@ -14,6 +14,7 @@ const ErrorCode = {
   RATE_LIMITED: 'RATE_LIMITED',
   REPORT_COOLDOWN: 'REPORT_COOLDOWN',
   DUPLICATE_REPORT: 'DUPLICATE_REPORT',
+  OUT_OF_RANGE: 'OUT_OF_RANGE',
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   DATABASE_ERROR: 'DATABASE_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -63,6 +64,17 @@ class ApiError extends Error {
   }
   static duplicateReport(message = 'An identical report was already submitted') {
     return new ApiError(409, ErrorCode.DUPLICATE_REPORT, message);
+  }
+  /** Reporter is not within the required radius of the station (or sent no coordinates at all). */
+  static outOfRange(message, distanceToStationM) {
+    return new ApiError(
+      403,
+      ErrorCode.OUT_OF_RANGE,
+      message,
+      distanceToStationM === undefined || distanceToStationM === null
+        ? undefined
+        : [{ field: 'distanceToStationM', message: String(distanceToStationM) }],
+    );
   }
   static internal(message = 'Something went wrong') {
     const error = new ApiError(500, ErrorCode.INTERNAL_ERROR, message);

@@ -39,12 +39,14 @@ router.get('/:stationId', optionalAuthenticate, validate({ params: V.stationIdPa
 router.get('/:stationId/reports', optionalAuthenticate, validate({ params: V.stationIdParam, query: V.pagination }), asyncHandler(controller.reportHistory));
 router.get('/:stationId/supply-events', optionalAuthenticate, validate({ params: V.stationIdParam, query: V.pagination }), asyncHandler(controller.listSupplyEvents));
 
-// --- Crowd reporting (any authenticated user) ---
+// --- Crowd reporting (any user, including guests) ---
 // Deliberately NOT gated on an operator assignment: normal users reporting what
-// they can see is the platform's primary data source.
+// they can see is the platform's primary data source. optionalAuthenticate so
+// a guest can report too — the report is stored either way, but only a
+// signed-in USER earns QPoints or moves their reputation (see report.service).
 router.post(
   '/:stationId/reports',
-  authenticate,
+  optionalAuthenticate,
   reportLimiter,
   validate({ params: V.stationIdParam, body: V.submitReportSchema }),
   asyncHandler(controller.submitReport),

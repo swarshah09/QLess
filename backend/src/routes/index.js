@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const adminRoutes = require('./admin.routes');
 const authRoutes = require('./auth.routes');
 const notificationRoutes = require('./notification.routes');
+const qpointsRoutes = require('./qpoints.routes');
 const stationRoutes = require('./station.routes');
 const { sendSuccess } = require('../utils/response');
 
@@ -32,6 +33,7 @@ router.get('/health/detailed', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/stations', stationRoutes);
 router.use('/notifications', notificationRoutes);
+router.use('/qpoints', qpointsRoutes);
 router.use('/admin', adminRoutes);
 
 module.exports = router;

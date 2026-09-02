@@ -13,7 +13,7 @@ import { SortFilterSheet } from '@/features/stations/SortFilterSheet';
 import { StationCardSkeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
-import { LocationBanner } from '@/features/location/LocationBanner';
+import { LocationGate } from '@/features/location/LocationGate';
 import { useSheets } from '@/hooks/SheetsContext';
 import { useAuth } from '@/hooks/AuthContext';
 import { useLocation } from '@/hooks/LocationContext';
@@ -45,10 +45,14 @@ export default function HomePage() {
 
   const originKey = coords ? `${coords.lat},${coords.lng}` : 'default';
 
-  // While location is still resolving we have no real origin. Querying now would
-  // return results ranked from the default city and then immediately re-rank,
-  // so hold the request until the origin is settled one way or the other.
-  const originPending = coords === null && resolving;
+  // Without real coordinates there is no station list to show at all — the
+  // page renders LocationGate instead (see below), so the fetch must not run
+  // either, or it would silently query the backend's hardcoded default city
+  // behind the gate and populate `stations` with data for the wrong place.
+  // `resolving` alone isn't enough here: it only covers the brief window
+  // while permission is being checked, not the settled 'denied'/'unknown'
+  // states that follow it, where coords stays null indefinitely.
+  const originPending = coords === null;
 
   const hasActiveFilters = Object.values(filters).some(
     (v) => v !== undefined && v !== false && v !== null,
@@ -98,100 +102,100 @@ export default function HomePage() {
     <div data-testid="home-page">
       <AppHeader />
 
-      <div style={{ padding: '18px 16px 0' }}>
-        {firstName && (
-          <p className="muted" style={{ fontSize: 14 }}>
-            Hi {firstName} 👋
-          </p>
-        )}
-        <h1 className="page-title">CNG stations near you</h1>
+      <LocationGate>
+        <div style={{ padding: '18px 16px 0' }}>
+          {firstName && (
+            <p className="muted" style={{ fontSize: 14 }}>
+              Hi {firstName} 👋
+            </p>
+          )}
+          <h1 className="page-title">CNG stations near you</h1>
 
-        <div className="home-controls">
-          <span className="home-loc" data-testid="home-location">
-            <MapPin size={14} /> {locLabel}
-          </span>
-          <button
-            className="sortbtn"
-            onClick={() => setSfOpen(true)}
-            data-testid="open-sortfilter"
-          >
-            <SlidersHorizontal size={15} />
-            Sort: {SORT_LABEL[sort]}
-          </button>
+          <div className="home-controls">
+            <span className="home-loc" data-testid="home-location">
+              <MapPin size={14} /> {locLabel}
+            </span>
+            <button
+              className="sortbtn"
+              onClick={() => setSfOpen(true)}
+              data-testid="open-sortfilter"
+            >
+              <SlidersHorizontal size={15} />
+              Sort: {SORT_LABEL[sort]}
+            </button>
+          </div>
+
+          <div style={{ margin: '14px 0 18px' }}>
+            <SegmentedControl
+              block
+              testId="list-map-toggle"
+              value="list"
+              onChange={(v) => v === 'map' && router.push('/app/map')}
+              options={[
+                { value: 'list', label: 'List', icon: <List size={16} /> },
+                { value: 'map', label: 'Map', icon: <MapIcon size={16} /> },
+              ]}
+            />
+          </div>
         </div>
 
-        <div style={{ margin: '14px 0 18px' }}>
-          <SegmentedControl
-            block
-            testId="list-map-toggle"
-            value="list"
-            onChange={(v) => v === 'map' && router.push('/app/map')}
-            options={[
-              { value: 'list', label: 'List', icon: <List size={16} /> },
-              { value: 'map', label: 'Map', icon: <MapIcon size={16} /> },
-            ]}
-          />
-        </div>
-
-        <LocationBanner />
-      </div>
-
-      <div style={{ padding: '0 16px 8px' }}>
-        {error ? (
-          <ErrorState onRetry={load} />
-        ) : stations === null ? (
-          <div className="list">
-            {slowWake && (
-              <div className="hint" data-testid="slow-wake-hint">
-                <Loader2 size={16} className="spin" />
-                <div>
-                  Waking up the server — this can take up to a minute on first
-                  load after a period of inactivity.
+        <div style={{ padding: '0 16px 8px' }}>
+          {error ? (
+            <ErrorState onRetry={load} />
+          ) : stations === null ? (
+            <div className="list">
+              {slowWake && (
+                <div className="hint" data-testid="slow-wake-hint">
+                  <Loader2 size={16} className="spin" />
+                  <div>
+                    Waking up the server — this can take up to a minute on
+                    first load after a period of inactivity.
+                  </div>
                 </div>
-              </div>
-            )}
-            <StationCardSkeleton />
-            <StationCardSkeleton />
-            <StationCardSkeleton />
-          </div>
-        ) : stations.length === 0 ? (
-          // With no filters applied there is nothing to "widen" — the area
-          // genuinely has no stations in range, and saying so avoids sending the
-          // user to a filter sheet that cannot help.
-          hasActiveFilters ? (
-            <EmptyState
-              icon={<SearchX size={26} />}
-              title="No stations match"
-              text="Try widening your filters or distance to see more CNG stations."
-              actionLabel="Reset filters"
-              onAction={() => {
-                setFilters({});
-                setSort('nearest');
-              }}
-            />
-          ) : (
-            <EmptyState
-              icon={<SearchX size={26} />}
-              title="No CNG stations nearby"
-              text={`We couldn't find any stations within ${Math.round(
-                NEARBY_RADIUS_M / 1000,
-              )} km of ${locLabel}. Try a different area.`}
-            />
-          )
-        ) : (
-          <div className="list">
-            {stations.map((s) => (
-              <StationCard
-                key={s.id}
-                station={s}
-                onNotify={openNotify}
-                onNavigate={openNavigate}
-                recommended={s.id === recommendedId}
+              )}
+              <StationCardSkeleton />
+              <StationCardSkeleton />
+              <StationCardSkeleton />
+            </div>
+          ) : stations.length === 0 ? (
+            // With no filters applied there is nothing to "widen" — the area
+            // genuinely has no stations in range, and saying so avoids sending
+            // the user to a filter sheet that cannot help.
+            hasActiveFilters ? (
+              <EmptyState
+                icon={<SearchX size={26} />}
+                title="No stations match"
+                text="Try widening your filters or distance to see more CNG stations."
+                actionLabel="Reset filters"
+                onAction={() => {
+                  setFilters({});
+                  setSort('nearest');
+                }}
               />
-            ))}
-          </div>
-        )}
-      </div>
+            ) : (
+              <EmptyState
+                icon={<SearchX size={26} />}
+                title="No CNG stations nearby"
+                text={`We couldn't find any stations within ${Math.round(
+                  NEARBY_RADIUS_M / 1000,
+                )} km of ${locLabel}. Try a different area.`}
+              />
+            )
+          ) : (
+            <div className="list">
+              {stations.map((s) => (
+                <StationCard
+                  key={s.id}
+                  station={s}
+                  onNotify={openNotify}
+                  onNavigate={openNavigate}
+                  recommended={s.id === recommendedId}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </LocationGate>
 
       <SortFilterSheet
         open={sfOpen}
