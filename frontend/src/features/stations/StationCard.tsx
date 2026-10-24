@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import Link from 'next/link';
 import { Bell, Fuel, MapPin, Navigation2, Sparkles } from 'lucide-react';
 import type { Station } from '@/types';
@@ -22,7 +23,15 @@ interface Props {
   recommended?: boolean;
 }
 
-export function StationCard({ station, onNotify, onNavigate, recommended }: Props) {
+// Memoized: lists render up to 50 of these, and their props (the station
+// object and the stable sheet openers) rarely change when the screen
+// re-renders for an unrelated reason such as opening the sort sheet.
+export const StationCard = memo(function StationCard({
+  station,
+  onNotify,
+  onNavigate,
+  recommended,
+}: Props) {
   const stale = isStale(station.lastUpdated);
   return (
     <Card tappable className="station-card" data-testid={`station-card-${station.id}`}>
@@ -133,4 +142,4 @@ export function StationCard({ station, onNotify, onNavigate, recommended }: Prop
       </div>
     </Card>
   );
-}
+});

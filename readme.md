@@ -176,6 +176,12 @@ automation is layered on top.
 - **Backend:** [`backend/render.yaml`](backend/render.yaml) — Render web service,
   Node 20, health check at `/api/v1/health`.
 - **Frontend:** [`frontend/vercel.json`](frontend/vercel.json) — Vercel, Next.js.
+  Real-user performance is reported through Vercel Web Analytics (page views)
+  and Speed Insights (LCP, INP, CLS, FCP, TTFB). Both are wired into the root
+  layout but only collect once enabled under the project's **Analytics** and
+  **Speed Insights** tabs in the Vercel dashboard.
 
 Both are free-tier configs; expect a cold-start delay on the first request after
-idling.
+idling. Keep the backend in the same region as the MongoDB cluster: every
+request makes several sequential database round trips, so cross-region latency
+is multiplied on each one.

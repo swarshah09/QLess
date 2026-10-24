@@ -11,6 +11,9 @@ const KEY = 'qless.location.manual';
 // Default reference point used before the user's location is known.
 export const DEFAULT_COORDS: Coordinates = DEFAULT_MAP_CENTER;
 
+/** Label for a GPS fix until its place name has been resolved. */
+export const CURRENT_LOCATION_LABEL = 'Current location';
+
 export type LocationResult =
   | { status: 'granted'; coords: Coordinates; label: string }
   | { status: 'denied' }
@@ -53,13 +56,45 @@ export async function describeCoords(coords: Coordinates): Promise<string> {
   const fallback = `${coords.lat.toFixed(3)}, ${coords.lng.toFixed(3)}`;
   if (!isGoogleMapsConfigured) return fallback;
 
+  const cached = readJSON<Record<string, string>>(PLACE_NAMES_KEY, {})[fallback];
+  if (cached) return cached;
+
+  const name = await geocodeName(coords);
+  if (name) rememberPlaceName(fallback, name);
+  return name ?? fallback;
+}
+
+/**
+ * Names already resolved, keyed by coordinates rounded to ~110 m.
+ *
+ * A place's name does not change, and resolving one costs the whole Maps SDK
+ * download — on the home screen, which otherwise has no map. Caching it means
+ * a returning user at a familiar spot never loads the SDK just for the header.
+ */
+const PLACE_NAMES_KEY = 'qless.location.placeNames';
+const MAX_PLACE_NAMES = 20;
+
+function rememberPlaceName(key: string, name: string): void {
+  const names = readJSON<Record<string, string>>(PLACE_NAMES_KEY, {});
+  delete names[key];
+  names[key] = name;
+  // Object key order is insertion order, so the first keys are the oldest.
+  const keys = Object.keys(names);
+  for (const old of keys.slice(0, Math.max(0, keys.length - MAX_PLACE_NAMES))) {
+    delete names[old];
+  }
+  writeJSON(PLACE_NAMES_KEY, names);
+}
+
+/** Reverse-geocodes to a short name; null when there is no usable answer. */
+async function geocodeName(coords: Coordinates): Promise<string | null> {
   try {
     await loadGoogleMaps();
     const geocoder = new google.maps.Geocoder();
     const { results } = await geocoder.geocode({
       location: { lat: coords.lat, lng: coords.lng },
     });
-    if (!results.length) return fallback;
+    if (!results.length) return null;
 
     // Prefer the neighbourhood/suburb over the full postal address: the header
     // is a narrow chip, and "Baner" is more useful there than 12 comma-separated
@@ -70,9 +105,9 @@ export async function describeCoords(coords: Coordinates): Promise<string> {
       const name = hit?.address_components.find((c) => c.types.includes(type))?.long_name;
       if (name) return name;
     }
-    return results[0].formatted_address.split(',')[0] || fallback;
+    return results[0].formatted_address.split(',')[0] || null;
   } catch {
-    return fallback;
+    return null;
   }
 }
 
@@ -198,7 +233,7 @@ export const LocationService = {
             resolve({
               status: 'granted',
               coords: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-              label: 'Current location',
+              label: CURRENT_LOCATION_LABEL,
             }),
           (err) => {
             if (err.code === err.PERMISSION_DENIED) resolve({ status: 'denied' });
@@ -287,16 +322,20 @@ export const LocationService = {
    * close enough — the geofence is enforced there, so there is nothing to fake
    * here. A successful check also opens a StationVisit, which is what the
    * "I'm Here" flow needs next.
+   *
+   * Callers already showing the station pass its name, which skips a request
+   * made only to look the name up.
    */
   async verifyNearby(
     stationId: string,
+    knownStationName?: string,
   ): Promise<{ nearby: boolean; stationName: string; visitId: string | null }> {
     const [position, station] = await Promise.all([
       this.getCurrentPosition(),
-      StationService.getStation(stationId),
+      knownStationName === undefined ? StationService.getStation(stationId) : null,
     ]);
 
-    const stationName = station?.name ?? 'this station';
+    const stationName = knownStationName ?? station?.name ?? 'this station';
 
     if (position.status !== 'granted') {
       return { nearby: false, stationName, visitId: null };

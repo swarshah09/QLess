@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 
@@ -48,11 +49,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     [theme, apply],
   );
 
-  return (
-    <Ctx.Provider value={{ theme, toggle, setTheme: apply }}>
-      {children}
-    </Ctx.Provider>
-  );
+  const value = useMemo(() => ({ theme, toggle, setTheme: apply }), [theme, toggle, apply]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useTheme(): ThemeCtx {

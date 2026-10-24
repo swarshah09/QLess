@@ -67,10 +67,10 @@ export function ReportSheet({ open, station, onClose, onSubmitted }: Props) {
     setSaving(false);
     setVerify('checking');
     setStep('form');
-    // Attempt to obtain location and mock-verify proximity. Never blocks.
+    // Attempt to obtain location and verify proximity. Never blocks.
+    // verifyNearby reads the position itself, so no separate read first.
     (async () => {
-      await LocationService.getCurrentLocation();
-      const res = await LocationService.verifyNearby(station.id);
+      const res = await LocationService.verifyNearby(station.id, station.name);
       setVerify(res.nearby ? 'verified' : 'unverified');
     })();
   }, [open, station]);

@@ -103,12 +103,37 @@ async function assertNotThrottled(identity, stationId, payload, now = new Date()
   const limits = isGuest ? GUEST_REPORT_LIMITS : REPORT_LIMITS;
   const scopeFilter = isGuest ? { submitterIp: identity.guestIp } : { user: identity.userId };
 
-  const [lastAnywhere, lastForStation] = await Promise.all([
+  const hourAgo = new Date(now.getTime() - 3600000);
+  const duplicateSince = new Date(now.getTime() - limits.duplicateWindowSeconds * 1000);
+  const clauses = [];
+  if (payload.queueLabel) {
+    clauses.push({ kind: 'QUEUE', queueLabel: payload.queueLabel });
+  }
+  if (payload.availability) {
+    clauses.push({ kind: 'AVAILABILITY', availability: payload.availability });
+  }
+
+  // Every read is issued at once — one round trip instead of three. The
+  // verdicts below are still checked in order of severity, so the error a
+  // client receives is unchanged.
+  const [lastAnywhere, lastForStation, stationCount, totalCount, matches] = await Promise.all([
     Report.findOne(scopeFilter).sort({ createdAt: -1 }).select('createdAt').lean(),
     Report.findOne({ ...scopeFilter, station: stationId })
       .sort({ createdAt: -1 })
       .select('createdAt')
       .lean(),
+    Report.countDocuments({ ...scopeFilter, station: stationId, createdAt: { $gte: hourAgo } }),
+    Report.countDocuments({ ...scopeFilter, createdAt: { $gte: hourAgo } }),
+    Promise.all(
+      clauses.map((clause) =>
+        Report.exists({
+          ...scopeFilter,
+          station: stationId,
+          createdAt: { $gte: duplicateSince },
+          ...clause,
+        }),
+      ),
+    ),
   ]);
 
   const secondsSince = (date) => (now.getTime() - new Date(date).getTime()) / 1000;
@@ -129,12 +154,6 @@ async function assertNotThrottled(identity, stationId, payload, now = new Date()
     }
   }
 
-  const hourAgo = new Date(now.getTime() - 3600000);
-  const [stationCount, totalCount] = await Promise.all([
-    Report.countDocuments({ ...scopeFilter, station: stationId, createdAt: { $gte: hourAgo } }),
-    Report.countDocuments({ ...scopeFilter, createdAt: { $gte: hourAgo } }),
-  ]);
-
   // A submission writes up to 3 documents, so the caps are scaled accordingly.
   if (stationCount >= limits.maxReportsPerStationPerHour * 3) {
     throw ApiError.reportCooldown('You have reported this station too many times in the past hour');
@@ -145,33 +164,12 @@ async function assertNotThrottled(identity, stationId, payload, now = new Date()
 
   // Checked last: an identical repeat is the least severe case, and saying so
   // specifically is more useful to an honest client than a generic cooldown.
-  const duplicateSince = new Date(now.getTime() - limits.duplicateWindowSeconds * 1000);
-  const clauses = [];
-  if (payload.queueLabel) {
-    clauses.push({ kind: 'QUEUE', queueLabel: payload.queueLabel });
-  }
-  if (payload.availability) {
-    clauses.push({ kind: 'AVAILABILITY', availability: payload.availability });
-  }
-
-  if (clauses.length > 0) {
-    const matches = await Promise.all(
-      clauses.map((clause) =>
-        Report.exists({
-          ...scopeFilter,
-          station: stationId,
-          createdAt: { $gte: duplicateSince },
-          ...clause,
-        }),
-      ),
+  // Every component must match — a changed queue alongside an unchanged
+  // availability is still new news.
+  if (clauses.length > 0 && matches.every(Boolean)) {
+    throw ApiError.duplicateReport(
+      'You already submitted an identical report for this station recently',
     );
-    // Every component must match — a changed queue alongside an unchanged
-    // availability is still new news.
-    if (matches.every(Boolean)) {
-      throw ApiError.duplicateReport(
-        'You already submitted an identical report for this station recently',
-      );
-    }
   }
 }
 
@@ -219,54 +217,66 @@ function valuesEqualForKind(kind, previousReportDoc, newReportDoc) {
  * pattern for reputation/notifications side effects.
  */
 async function awardQPoints({ userId, stationId, createdReports, now = new Date() }) {
+  // A submission holds at most one report per kind, and each kind is judged
+  // only against its own ledger history, so the kinds are independent and are
+  // processed concurrently.
+  const awards = await Promise.all(
+    createdReports.map((report) => awardForReport({ userId, stationId, report, now })),
+  );
+
   const byKind = {};
   let totalAwarded = 0;
-
-  for (const report of createdReports) {
-    const kind = report.kind;
-    const award = QPOINTS.awardByKind[kind];
+  for (const award of awards) {
     if (!award) continue;
-
-    // The user's immediately-previous EARNED ledger entry for this exact
-    // (user, station, kind) — used both for the cooldown window AND to check
-    // whether the new value differs from it.
-    const previousEvent = await QPointsEvent.findOne({
-      user: userId,
-      station: stationId,
-      kind,
-      type: 'EARNED',
-    })
-      .sort({ createdAt: -1 })
-      .populate({ path: 'report', select: 'queueLabel availability pressureValue' })
-      .lean();
-
-    const cooldownActive =
-      previousEvent &&
-      (now.getTime() - new Date(previousEvent.createdAt).getTime()) / 60000 <
-        QPOINTS.perKindCooldownMinutes;
-
-    const valueChanged =
-      !previousEvent?.report || !valuesEqualForKind(kind, previousEvent.report, report);
-
-    // Exact repeat inside the window: 0 points for this kind. Everything else
-    // (first-ever report of this kind, window elapsed, or a changed value
-    // even inside the window) earns.
-    if (cooldownActive && !valueChanged) continue;
-
-    await QPointsEvent.create({
-      user: userId,
-      station: stationId,
-      report: report._id,
-      kind,
-      type: 'EARNED',
-      points: award,
-    });
-
-    byKind[kind.toLowerCase()] = award;
-    totalAwarded += award;
+    byKind[award.kind.toLowerCase()] = award.points;
+    totalAwarded += award.points;
   }
 
   return { totalAwarded, byKind };
+}
+
+/** One kind's award decision; resolves null when this kind earns nothing. */
+async function awardForReport({ userId, stationId, report, now }) {
+  const kind = report.kind;
+  const award = QPOINTS.awardByKind[kind];
+  if (!award) return null;
+
+  // The user's immediately-previous EARNED ledger entry for this exact
+  // (user, station, kind) — used both for the cooldown window AND to check
+  // whether the new value differs from it.
+  const previousEvent = await QPointsEvent.findOne({
+    user: userId,
+    station: stationId,
+    kind,
+    type: 'EARNED',
+  })
+    .sort({ createdAt: -1 })
+    .populate({ path: 'report', select: 'queueLabel availability pressureValue' })
+    .lean();
+
+  const cooldownActive =
+    previousEvent &&
+    (now.getTime() - new Date(previousEvent.createdAt).getTime()) / 60000 <
+      QPOINTS.perKindCooldownMinutes;
+
+  const valueChanged =
+    !previousEvent?.report || !valuesEqualForKind(kind, previousEvent.report, report);
+
+  // Exact repeat inside the window: 0 points for this kind. Everything else
+  // (first-ever report of this kind, window elapsed, or a changed value
+  // even inside the window) earns.
+  if (cooldownActive && !valueChanged) return null;
+
+  await QPointsEvent.create({
+    user: userId,
+    station: stationId,
+    report: report._id,
+    kind,
+    type: 'EARNED',
+    points: award,
+  });
+
+  return { kind, points: award };
 }
 
 const reportService = {
@@ -278,12 +288,6 @@ const reportService = {
    * is that the submission says *something*.
    */
   async submit({ stationId, reporter, input, actingAsOperator = false, guestIp = null }) {
-    const station = await Station.findById(stationId);
-    if (!station) throw ApiError.notFound('Station not found');
-    if (!station.active && !actingAsOperator) {
-      throw ApiError.badRequest('This station is not currently active');
-    }
-
     const queue = input.queueRange ? parseQueueLabel(input.queueRange) : null;
 
     // An explicit "not sure" for everything carries no information at all.
@@ -293,6 +297,31 @@ const reportService = {
     const reportsPressure = input.pressureValue !== undefined && input.pressureValue !== null;
     const reportsDispensers =
       input.activeDispensers !== undefined && input.activeDispensers !== null;
+
+    // Operators are exempt: a busy forecourt changes fast and they must keep up.
+    // A guest (reporter === null) is never an operator or admin, so the guard
+    // always falls through to throttling for them, just IP-keyed instead of
+    // account-keyed.
+    const throttled = !actingAsOperator && (!reporter || reporter.role !== ROLES.ADMIN);
+
+    // The throttle reads need nothing from the station document, so they start
+    // now and overlap the station lookup. The verdict is still awaited at the
+    // original point below, so every validation and range error keeps its
+    // precedence; the no-op catch only stops an early validation error from
+    // leaving this promise rejected and unobserved.
+    const throttleCheck = throttled
+      ? assertNotThrottled(reporter ? { userId: reporter.id } : { guestIp }, stationId, {
+          queueLabel: reportsQueue ? queue.label : null,
+          availability: reportsAvailability ? input.availability : null,
+        })
+      : null;
+    throttleCheck?.catch(() => {});
+
+    const station = await Station.findById(stationId);
+    if (!station) throw ApiError.notFound('Station not found');
+    if (!station.active && !actingAsOperator) {
+      throw ApiError.badRequest('This station is not currently active');
+    }
 
     if (!reportsQueue && !reportsAvailability && !reportsPressure && !reportsDispensers) {
       throw ApiError.badRequest(
@@ -335,7 +364,7 @@ const reportService = {
     // since proximity cannot be confirmed either way — is rejected outright.
     // Operators and admins are exempt: they are trusted by role, same as for
     // throttling below.
-    if (!actingAsOperator && (!reporter || reporter.role !== ROLES.ADMIN)) {
+    if (throttled) {
       if (
         verification.distanceToStationM === null ||
         verification.distanceToStationM > REPORT_SUBMISSION_RADIUS_M
@@ -349,17 +378,7 @@ const reportService = {
       }
     }
 
-    // Operators are exempt: a busy forecourt changes fast and they must keep up.
-    // A guest (reporter === null) is never an operator or admin, so the guard
-    // below always falls through to throttling for them, just IP-keyed instead
-    // of account-keyed.
-    if (!actingAsOperator && (!reporter || reporter.role !== ROLES.ADMIN)) {
-      const identity = reporter ? { userId: reporter.id } : { guestIp };
-      await assertNotThrottled(identity, stationId, {
-        queueLabel: reportsQueue ? queue.label : null,
-        availability: reportsAvailability ? input.availability : null,
-      });
-    }
+    if (throttleCheck) await throttleCheck;
 
     const geo = {
       locationVerified: verification.locationVerified,
@@ -414,34 +433,41 @@ const reportService = {
 
     const created = await Report.insertMany(documents);
 
-    // Recomputed from the FULL history, never patched from this one report.
-    const updated = await stationStatusService.recompute(stationId);
-
-    // Fire-and-forget side effects: neither may fail the report itself.
-    realtime.emitStationUpdated(updated);
-    notificationService.evaluateStation(stationId).catch(() => {});
-
     // Both reputation and QPoints are earned only by a signed-in USER acting
     // as themselves — a guest has no account to hold either on, and an
     // operator/admin's own report is already trusted by role, not by these
     // accountability mechanisms.
-    let qpoints = { totalAwarded: 0, byKind: {} };
-    if (!actingAsOperator && reporter && reporter.role === ROLES.USER) {
-      adjustReputation(reporter.id, verification.locationVerified).catch(() => {});
+    const earnsCredit = !actingAsOperator && reporter && reporter.role === ROLES.USER;
 
-      qpoints = await awardQPoints({
-        userId: reporter.id,
-        stationId,
-        createdReports: created,
-      }).catch((err) => {
-        // A points-award failure must never fail an already-successful report.
-        logger.error('QPoints award failed', {
-          error: err.message,
-          userId: reporter.id,
-          stationId,
-        });
-        return { totalAwarded: 0, byKind: {} };
-      });
+    // Recomputed from the FULL history, never patched from this one report —
+    // reusing the station document loaded above rather than reading it again.
+    // QPoints depend only on the reports just created, so they are awarded
+    // concurrently with the recompute instead of after it.
+    const [updated, qpoints] = await Promise.all([
+      stationStatusService.recompute(stationId, { station }),
+      earnsCredit
+        ? awardQPoints({
+            userId: reporter.id,
+            stationId,
+            createdReports: created,
+          }).catch((err) => {
+            // A points-award failure must never fail an already-successful report.
+            logger.error('QPoints award failed', {
+              error: err.message,
+              userId: reporter.id,
+              stationId,
+            });
+            return { totalAwarded: 0, byKind: {} };
+          })
+        : { totalAwarded: 0, byKind: {} },
+    ]);
+
+    // Fire-and-forget side effects: neither may fail the report itself.
+    realtime.emitStationUpdated(updated);
+    notificationService.evaluateStation(stationId, { station: updated }).catch(() => {});
+
+    if (earnsCredit) {
+      adjustReputation(reporter.id, verification.locationVerified).catch(() => {});
     }
 
     const idsByKind = {};
@@ -463,14 +489,16 @@ const reportService = {
 
   /** Raw report history — the append-only record behind the current status. */
   async history(stationId, { page = 1, limit = 20 }) {
-    const station = await Station.exists({ _id: stationId });
+    // Issued together; a missing station still 404s before anything is returned.
+    const [station, reports] = await Promise.all([
+      Station.exists({ _id: stationId }),
+      Report.find({ station: stationId })
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+    ]);
     if (!station) throw ApiError.notFound('Station not found');
-
-    const reports = await Report.find({ station: stationId })
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean();
 
     // Grouped by kind to match the shape the frontend already consumes.
     return {

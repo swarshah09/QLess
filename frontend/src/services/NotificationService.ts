@@ -33,6 +33,13 @@ async function resolveVapidKey(): Promise<string | null> {
   }
 }
 
+/**
+ * The app layout (badge count) and the alerts screen both ask for the rules as
+ * the screen opens; callers that overlap share one request. Nothing is kept
+ * once it settles, so a later call always reads fresh state.
+ */
+let rulesInFlight: Promise<NotificationRule[]> | null = null;
+
 // NotificationService — alert rules plus the browser push lifecycle.
 export const NotificationService = {
   async listRules(): Promise<NotificationRule[]> {
@@ -40,10 +47,14 @@ export const NotificationService = {
     // guaranteed 401 on every visit to the alerts screen.
     if (!hasTokens()) return [];
 
-    const result = await apiRequest<{ rules: ApiNotificationRule[] }>(
-      '/notifications/rules',
-    );
-    return result.rules.map((rule) => mapRule(rule));
+    if (!rulesInFlight) {
+      rulesInFlight = apiRequest<{ rules: ApiNotificationRule[] }>('/notifications/rules')
+        .then((result) => result.rules.map((rule) => mapRule(rule)))
+        .finally(() => {
+          rulesInFlight = null;
+        });
+    }
+    return rulesInFlight;
   },
 
   async createRule(

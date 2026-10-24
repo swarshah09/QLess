@@ -27,15 +27,81 @@ const { PLACES } = require('../config/constants');
  * though we synced somewhere else five minutes ago.
  */
 async function hasSufficientCoverage(latitude, longitude, radiusM) {
-  const count = await Station.countDocuments({
-    active: true,
-    location: {
-      $geoWithin: {
-        $centerSphere: [[longitude, latitude], radiusM / 6378100],
+  const count = await Station.countDocuments(
+    {
+      active: true,
+      location: {
+        $geoWithin: {
+          $centerSphere: [[longitude, latitude], radiusM / 6378100],
+        },
       },
     },
-  });
+    // Only "at least N" matters, so stop counting there. The hint matters too:
+    // left alone, the planner picks the `active` index and scans every active
+    // station nationwide rather than just the ones inside the circle.
+    { limit: PLACES.minCachedStationsToSkipLookup, hint: { location: '2dsphere' } },
+  );
   return count >= PLACES.minCachedStationsToSkipLookup;
+}
+
+/**
+ * Areas the provider was asked about recently, so a sparse region does not
+ * re-query it on every request.
+ *
+ * Without this, an area where the provider has fewer than the threshold
+ * number of stations stays "thin" forever, and every request from it pays for
+ * — and is delayed by — another identical provider call. Only the fact that an
+ * area was searched is remembered here; station identity is persisted in
+ * MongoDB as before, and live status is never involved.
+ *
+ * In-memory and per-instance on purpose: losing it on restart costs at most
+ * one extra provider call per area, which does not justify shared storage.
+ */
+const recentSearches = new Map();
+const inFlightSearches = new Map();
+
+/** Grid cell scaled to the radius, so nearby origins share one search. */
+function areaKey(latitude, longitude, radiusM) {
+  const cellDeg = Math.max(0.01, radiusM / 4 / 111000);
+  return `${Math.floor(latitude / cellDeg)}:${Math.floor(longitude / cellDeg)}:${radiusM}`;
+}
+
+function searchedRecently(key, now = Date.now()) {
+  const expiresAt = recentSearches.get(key);
+  if (expiresAt === undefined) return false;
+  if (now < expiresAt) return true;
+  recentSearches.delete(key);
+  return false;
+}
+
+/**
+ * An empty answer is remembered only briefly: the provider resolves [] for an
+ * outage as well as for a genuinely empty area, and an outage should not hide
+ * an area for hours. A short memo still spares users from waiting on a
+ * failing provider request after request.
+ */
+function rememberSearch(key, foundAny, now = Date.now()) {
+  // Map iteration order is insertion order, so the first key is the oldest.
+  if (recentSearches.size >= PLACES.maxRememberedAreas) {
+    recentSearches.delete(recentSearches.keys().next().value);
+  }
+  recentSearches.set(key, now + (foundAny ? PLACES.areaSearchTtlMs : PLACES.emptyAreaSearchTtlMs));
+}
+
+async function searchAndPersist(latitude, longitude, radiusM, key) {
+  const seeds = await placesService.searchNearby({ latitude, longitude, radiusM });
+  if (seeds.length === 0) {
+    rememberSearch(key, false);
+    return { discovered: 0, skipped: 'no-results' };
+  }
+
+  const saved = await upsertDiscovered(seeds);
+  rememberSearch(key, true);
+  logger.info('Discovered stations from place provider', {
+    requested: seeds.length,
+    persisted: saved.length,
+  });
+  return { discovered: saved.length };
 }
 
 /**
@@ -116,24 +182,33 @@ async function upsertDiscovered(seeds) {
  *
  * Always resolves — never throws — so a provider problem degrades discovery to
  * whatever MongoDB already holds instead of failing the user's request.
+ *
+ * `knownCount` lets a caller that has just read the area pass the number of
+ * ACTIVE stations it found inside the radius (with no other filter applied),
+ * which answers the coverage question without a second query.
  */
-async function ensureCoverage({ latitude, longitude, radiusM }) {
+async function ensureCoverage({ latitude, longitude, radiusM, knownCount }) {
   if (!placesService.isConfigured()) return { discovered: 0, skipped: 'not-configured' };
 
   try {
-    if (await hasSufficientCoverage(latitude, longitude, radiusM)) {
-      return { discovered: 0, skipped: 'cached' };
+    const sufficient =
+      knownCount !== undefined
+        ? knownCount >= PLACES.minCachedStationsToSkipLookup
+        : await hasSufficientCoverage(latitude, longitude, radiusM);
+    if (sufficient) return { discovered: 0, skipped: 'cached' };
+
+    const key = areaKey(latitude, longitude, radiusM);
+    if (searchedRecently(key)) return { discovered: 0, skipped: 'searched-recently' };
+
+    // Concurrent requests for the same area share a single provider call.
+    let search = inFlightSearches.get(key);
+    if (!search) {
+      search = searchAndPersist(latitude, longitude, radiusM, key).finally(() =>
+        inFlightSearches.delete(key),
+      );
+      inFlightSearches.set(key, search);
     }
-
-    const seeds = await placesService.searchNearby({ latitude, longitude, radiusM });
-    if (seeds.length === 0) return { discovered: 0, skipped: 'no-results' };
-
-    const saved = await upsertDiscovered(seeds);
-    logger.info('Discovered stations from place provider', {
-      requested: seeds.length,
-      persisted: saved.length,
-    });
-    return { discovered: saved.length };
+    return await search;
   } catch (error) {
     logger.warn('Station discovery failed', { error: error.message });
     return { discovered: 0, skipped: 'error' };

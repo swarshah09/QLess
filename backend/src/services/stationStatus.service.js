@@ -1,7 +1,9 @@
 'use strict';
 
+const mongoose = require('mongoose');
 const Report = require('../models/Report');
 const Station = require('../models/Station');
+const User = require('../models/User');
 const logger = require('../config/logger');
 const {
   SOURCE_WEIGHTS,
@@ -29,6 +31,33 @@ const {
  */
 
 const AUTHORITATIVE = new Set(['OPERATOR', 'ADMIN']);
+
+/**
+ * The input window's reports, all three kinds in one query — the reason they
+ * share a collection — with each reporter's reputation joined in the same
+ * round trip. Shaped exactly like the `populate('user', 'reputation')` read it
+ * replaces: `user` is `{ _id, reputation }`, or absent when there is no user.
+ */
+function recentReportsWithReputation(stationId, since) {
+  return Report.aggregate([
+    {
+      $match: {
+        station: new mongoose.Types.ObjectId(String(stationId)),
+        createdAt: { $gte: since },
+      },
+    },
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: 'user',
+        foreignField: '_id',
+        pipeline: [{ $project: { reputation: 1 } }],
+        as: 'user',
+      },
+    },
+    { $set: { user: { $first: '$user' } } },
+  ]);
+}
 
 /** Linear decay to zero across the window — old reports fade, never vanish abruptly. */
 function recencyWeight(createdAt, now, windowMinutes) {
@@ -295,15 +324,17 @@ const stationStatusService = {
     const now = options.now ?? new Date();
     const windowMinutes = options.windowMinutes ?? STATUS_INPUT_WINDOW_MINUTES;
 
-    const station = await Station.findById(stationId);
-    if (!station) throw ApiError.notFound('Station not found');
-
     const since = new Date(now.getTime() - windowMinutes * 60000);
 
-    // One query for all three report kinds — the reason they share a collection.
-    const reports = await Report.find({ station: stationId, createdAt: { $gte: since } })
-      .populate('user', 'reputation')
-      .lean();
+    // The station and its reports are independent reads, so they are issued
+    // together — and a caller that already holds the station document passes
+    // it in rather than paying for it again. An invalid id still fails exactly
+    // as before, through the station lookup.
+    const [station, reports] = await Promise.all([
+      options.station ?? Station.findById(stationId),
+      mongoose.isValidObjectId(stationId) ? recentReportsWithReputation(stationId, since) : [],
+    ]);
+    if (!station) throw ApiError.notFound('Station not found');
 
     /**
      * Reputation modulates weight within a bounded band, so it never silences a

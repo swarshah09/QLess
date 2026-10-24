@@ -76,6 +76,10 @@ reportSchema.index({ user: 1, station: 1, createdAt: -1 });
 // Guest throttling reads "this IP's recent reports for this station" — mirrors
 // the user+station index above for the case where there is no user.
 reportSchema.index({ submitterIp: 1, station: 1, createdAt: -1 });
+// ...and "this IP's most recent report anywhere" / "this IP's reports in the
+// last hour", mirroring user+createdAt. Without it both scan and sort every
+// report the IP ever sent — and a carrier-NAT address is shared by many guests.
+reportSchema.index({ submitterIp: 1, createdAt: -1 });
 // Admin moderation scans by source over a recent window.
 reportSchema.index({ source: 1, createdAt: -1 });
 reportSchema.index({ station: 1, kind: 1, createdAt: -1 });

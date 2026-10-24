@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { Station } from '@/types';
 import { NotifyMeSheet } from '@/features/notifications/NotifyMeSheet';
 import { NavigationSheet } from '@/features/navigation/NavigationSheet';
@@ -19,9 +19,12 @@ export function SheetsProvider({ children }: { children: React.ReactNode }) {
 
   const openNotify = useCallback((s: Station) => setNotifyStation(s), []);
   const openNavigate = useCallback((s: Station) => setNavStation(s), []);
+  // Opening a sheet re-renders this provider; with a fresh value object it also
+  // re-rendered the whole screen underneath (every station card included).
+  const value = useMemo(() => ({ openNotify, openNavigate }), [openNotify, openNavigate]);
 
   return (
-    <Ctx.Provider value={{ openNotify, openNavigate }}>
+    <Ctx.Provider value={value}>
       {children}
       <NotifyMeSheet
         open={notifyStation !== null}

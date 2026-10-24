@@ -31,7 +31,7 @@ export function ImHereSheet({ open, station, onClose }: Props) {
       let cancelled = false;
 
       // The backend verifies proximity and opens the visit in one step.
-      LocationService.verifyNearby(station.id).then((r) => {
+      LocationService.verifyNearby(station.id, station.name).then((r) => {
         if (cancelled) return;
         setVisitId(r.visitId);
         setPhase(r.nearby ? 'nearby' : 'far');

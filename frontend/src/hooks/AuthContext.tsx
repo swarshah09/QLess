@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AuthService } from '@/services/AuthService';
 import { SavedStationService } from '@/services/SavedStationService';
 import { RealtimeService } from '@/services/RealtimeService';
@@ -97,13 +97,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsGuest(true);
   }, []);
 
-  return (
-    <Ctx.Provider
-      value={{ user, isGuest, ready, role, login, register, logout, continueAsGuest }}
-    >
-      {children}
-    </Ctx.Provider>
+  // A new object every render would re-render every consumer whenever this
+  // provider renders, even when nothing they read has changed.
+  const value = useMemo(
+    () => ({ user, isGuest, ready, role, login, register, logout, continueAsGuest }),
+    [user, isGuest, ready, role, login, register, logout, continueAsGuest],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useAuth(): AuthCtx {

@@ -199,6 +199,12 @@ const PLACES = {
   dedupeDistanceM: 60,
   /** Provider request budget per discovery call. */
   timeoutMs: 8000,
+  /** A still-thin area is not re-searched within this window (per instance). */
+  areaSearchTtlMs: 6 * 60 * 60 * 1000, // 6 hours
+  /** Shorter for an empty answer, which may have been a provider outage. */
+  emptyAreaSearchTtlMs: 10 * 60 * 1000, // 10 minutes
+  /** Bounds the in-memory record of searched areas. */
+  maxRememberedAreas: 1000,
 };
 
 const PAGINATION = { defaultPage: 1, defaultLimit: 20, maxLimit: 100 };

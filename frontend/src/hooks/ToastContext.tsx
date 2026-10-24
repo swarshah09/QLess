@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Info, X } from 'lucide-react';
 
@@ -52,8 +52,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     </div>
   );
 
+  // Showing or expiring a toast re-renders this provider; a stable value keeps
+  // that from re-rendering every component that can raise one.
+  const value = useMemo(() => ({ toast }), [toast]);
+
   return (
-    <Ctx.Provider value={{ toast }}>
+    <Ctx.Provider value={value}>
       {children}
       {host ? createPortal(overlay, host) : null}
     </Ctx.Provider>

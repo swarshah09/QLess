@@ -8,6 +8,9 @@ const rawApi = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000/ap
 /** REST base, e.g. http://localhost:4000/api/v1 — never has a trailing slash. */
 export const API_BASE_URL = rawApi.replace(/\/+$/, '');
 
+/** Scheme + host + port of the API, e.g. http://localhost:4000 — for preconnect. */
+export const API_ORIGIN = new URL(API_BASE_URL).origin;
+
 /**
  * Socket.IO origin. Defaults to the API origin with the `/api/v1` path
  * stripped, since the gateway is attached to the same HTTP server.

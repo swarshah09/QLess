@@ -11,7 +11,11 @@ import { LocationGate } from '@/features/location/LocationGate';
 import { useSheets } from '@/hooks/SheetsContext';
 import { useLocation } from '@/hooks/LocationContext';
 import { useLiveLocation } from '@/hooks/useLiveLocation';
-import { isGoogleMapsConfigured } from '@/lib/googleMaps';
+import { isGoogleMapsConfigured, loadGoogleMaps } from '@/lib/googleMaps';
+import { distanceFrom } from '@/lib/geo';
+
+/** Live movement smaller than this keeps the current results (GPS jitter). */
+const LIVE_REFETCH_M = 150;
 
 // Lazy-loaded so map code stays out of the initial bundle.
 const mapLoading = () => (
@@ -40,9 +44,12 @@ export default function MapPage() {
    * one — while driving, requests can easily resolve out of order.
    */
   const requestSeq = useRef(0);
+  /** Origin of the latest request, the baseline for live-movement refetches. */
+  const lastOrigin = useRef<Coordinates | null>(null);
 
   const loadStations = useCallback(async (origin: Coordinates | null) => {
     const seq = ++requestSeq.current;
+    lastOrigin.current = origin;
     const results = await StationService.getNearbyStations({
       origin: origin ?? undefined,
     });
@@ -59,12 +66,27 @@ export default function MapPage() {
   const manual = location.status === 'manual';
 
   const { coords: liveCoords, accuracyM, tracking, error } = useLiveLocation({
-    minMoveMeters: 150,
+    minMoveMeters: LIVE_REFETCH_M,
     onMove: (next) => {
       if (manual) return;
+      // The watch's first fix usually lands metres from the position the page
+      // has just loaded stations for. The same threshold that absorbs jitter
+      // applies to it, measured from that request, instead of refetching the
+      // identical list on arrival.
+      const last = lastOrigin.current;
+      if (last && distanceFrom(last, next.lat, next.lng) * 1000 < LIVE_REFETCH_M) return;
       void loadStations(next);
     },
   });
+
+  // The map waits for the station list before mounting, so start its SDK and
+  // code downloading alongside that request rather than after it. Both loads
+  // are cached; the map then mounts without its own network wait.
+  useEffect(() => {
+    if (!isGoogleMapsConfigured) return;
+    loadGoogleMaps().catch(() => undefined);
+    import('@/features/maps/GoogleMap').catch(() => undefined);
+  }, []);
 
   // The live fix wins only while we are actually following the user.
   const activeCoords = manual ? savedCoords : (liveCoords ?? savedCoords);

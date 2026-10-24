@@ -1,4 +1,4 @@
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { REALTIME_ENABLED, SOCKET_URL } from '@/lib/api/config';
 import { getAccessToken } from '@/lib/api/tokens';
 import { toConfidence, toQueueRange } from '@/lib/api/mappers';
@@ -28,36 +28,54 @@ export interface StationUpdate {
 type Listener = (update: StationUpdate) => void;
 
 let socket: Socket | null = null;
+/** The client library's in-flight load, so concurrent callers share it. */
+let connecting: Promise<void> | null = null;
 /** Station id → listeners. Doubles as the set of rooms we should be in. */
 const listeners = new Map<string, Set<Listener>>();
 
-function ensureSocket(): Socket | null {
-  if (typeof window === 'undefined' || !REALTIME_ENABLED) return null;
-  if (socket) return socket;
+/**
+ * Opens the shared connection. The Socket.IO client is imported on first use
+ * rather than up front: this module is reached from the root layout (via
+ * AuthContext), so a static import put ~13 KB gzipped on every screen, while
+ * only screens that subscribe need it. Rooms are joined from the 'connect'
+ * handler, which covers listeners that registered while it was loading.
+ */
+function ensureSocket(): void {
+  if (typeof window === 'undefined' || !REALTIME_ENABLED) return;
+  if (socket || connecting) return;
 
-  socket = io(SOCKET_URL, {
-    path: '/socket.io',
-    transports: ['websocket', 'polling'],
-    // Station data is public, so a guest connection is valid; the token is
-    // attached when present for future per-user channels.
-    auth: { token: getAccessToken() ?? undefined },
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 10000,
-  });
+  connecting = import('socket.io-client')
+    .then(({ io }) => {
+      const next = io(SOCKET_URL, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        // Station data is public, so a guest connection is valid; the token is
+        // attached when present for future per-user channels.
+        auth: { token: getAccessToken() ?? undefined },
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 10000,
+      });
 
-  socket.on('connect', () => {
-    // Re-subscribe after a reconnect — rooms do not survive a dropped socket.
-    for (const stationId of listeners.keys()) {
-      socket?.emit('station:subscribe', stationId);
-    }
-  });
+      next.on('connect', () => {
+        // Re-subscribe after a reconnect — rooms do not survive a dropped socket.
+        for (const stationId of listeners.keys()) {
+          next.emit('station:subscribe', stationId);
+        }
+      });
 
-  socket.on('station:updated', (update: StationUpdate) => {
-    listeners.get(update.stationId)?.forEach((listener) => listener(update));
-  });
+      next.on('station:updated', (update: StationUpdate) => {
+        listeners.get(update.stationId)?.forEach((listener) => listener(update));
+      });
 
-  return socket;
+      socket = next;
+    })
+    // Realtime is an enhancement over the REST data already on screen; a failed
+    // load is retried by the next subscribe.
+    .catch(() => undefined)
+    .finally(() => {
+      connecting = null;
+    });
 }
 
 export const RealtimeService = {
@@ -66,13 +84,14 @@ export const RealtimeService = {
    * left only when the last listener for that station goes away.
    */
   subscribe(stationId: string, listener: Listener): () => void {
-    const active = ensureSocket();
+    ensureSocket();
 
     let set = listeners.get(stationId);
     if (!set) {
       set = new Set();
       listeners.set(stationId, set);
-      active?.emit('station:subscribe', stationId);
+      // A socket that is still loading joins this room when it connects.
+      socket?.emit('station:subscribe', stationId);
     }
     set.add(listener);
 

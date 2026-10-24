@@ -1,7 +1,12 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DEFAULT_COORDS, LocationService } from '@/services/LocationService';
+import { usePathname } from 'next/navigation';
+import {
+  CURRENT_LOCATION_LABEL,
+  DEFAULT_COORDS,
+  LocationService,
+} from '@/services/LocationService';
 import type { Coordinates, LocationState, PlaceBounds } from '@/types';
 
 interface LocationCtx {
@@ -42,6 +47,18 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         : prev,
     );
   }, []);
+
+  // The name appears only inside the app (header, home), and resolving one can
+  // mean downloading the whole Maps SDK, so it is not looked up while the
+  // landing or login screen is showing — it resolves on entering the app.
+  const pathname = usePathname();
+  const showsPlaceName = pathname?.startsWith('/app') ?? false;
+
+  useEffect(() => {
+    if (!showsPlaceName || location.status !== 'granted') return;
+    if (location.label !== CURRENT_LOCATION_LABEL) return;
+    void nameLocation(location.coords);
+  }, [showsPlaceName, location, nameLocation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,8 +101,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
 
       if (result.status === 'granted') {
+        // The place name is filled in by the naming effect above.
         setLocation({ status: 'granted', coords: result.coords, label: result.label });
-        void nameLocation(result.coords);
       } else if (result.status === 'denied') {
         setLocation({ status: 'denied' });
       } else {
@@ -101,8 +118,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // Mount-only: this is the initial acquisition. `nameLocation` is a stable
-    // useCallback, and re-running would re-prompt on every render.
+    // Mount-only: this is the initial acquisition, and re-running would
+    // re-prompt on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -111,7 +128,6 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     const result = await LocationService.getCurrentLocation();
     if (result.status === 'granted') {
       setLocation({ status: 'granted', coords: result.coords, label: result.label });
-      void nameLocation(result.coords);
     } else if (result.status === 'denied') {
       setLocation({ status: 'denied' });
     } else {
@@ -121,7 +137,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         message: result.message,
       });
     }
-  }, [nameLocation]);
+  }, []);
 
   const setManual = useCallback(
     (label: string, coords: Coordinates = DEFAULT_COORDS, bounds: PlaceBounds | null = null) => {
@@ -137,11 +153,13 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return null;
   }, [location]);
 
-  return (
-    <Ctx.Provider value={{ location, coords, resolving, requestLocation, setManual }}>
-      {children}
-    </Ctx.Provider>
+  // Stable identity, so consumers re-render only when a value they read changes.
+  const value = useMemo(
+    () => ({ location, coords, resolving, requestLocation, setManual }),
+    [location, coords, resolving, requestLocation, setManual],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useLocation(): LocationCtx {

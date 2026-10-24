@@ -25,10 +25,14 @@ async function resolvePrincipal(req) {
   const payload = verifyAccessToken(token);
   if (!payload) return null;
 
-  const session = await RefreshSession.findById(payload.sid).lean();
+  // Both ids come from the verified token, so the lookups are independent and
+  // run concurrently: one database round trip instead of two on every
+  // authenticated request. Both checks still apply.
+  const [session, user] = await Promise.all([
+    RefreshSession.findById(payload.sid).lean(),
+    User.findById(payload.sub).select('name email role active').lean(),
+  ]);
   if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
-
-  const user = await User.findById(payload.sub).lean();
   if (!user || !user.active) return null;
 
   return {

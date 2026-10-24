@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const Station = require('../models/Station');
 const SavedStation = require('../models/SavedStation');
 const SupplyEvent = require('../models/SupplyEvent');
-const { GEO, RECOMMENDATION } = require('../config/constants');
+const { GEO, PLACES, RECOMMENDATION } = require('../config/constants');
 const { ApiError } = require('../utils/ApiError');
 const { haversineDistanceM, metresToKm } = require('../utils/domain');
 const stationStatusService = require('./stationStatus.service');
@@ -155,30 +155,53 @@ const stationService = {
    */
   async findNearby({ latitude, longitude, radiusM, sort = 'distance', limit = 20, filters = {}, userId, discover = true }) {
     const radius = Math.min(radiusM ?? GEO.defaultSearchRadiusM, GEO.maxSearchRadiusM);
+    const statusFilter = buildStatusFilter(filters);
 
-    // Learn about real stations we do not know yet, then read exclusively from
-    // MongoDB below. Discovery never throws and never writes live status, so a
-    // provider outage simply leaves the result set as whatever we already hold.
+    /**
+     * $geoNear already emits nearest-first, so a distance-sorted page needs only
+     * its first `limit` rows — never less than the coverage threshold, so the
+     * same read can answer the discovery question below. Other sorts must see
+     * the whole radius before ordering, so they keep the generous cap that stops
+     * a pathological query loading the whole collection.
+     */
+    const cap = sort === 'distance' ? Math.max(limit, PLACES.minCachedStationsToSkipLookup) : 500;
+
+    const readArea = () =>
+      Station.aggregate([
+        {
+          $geoNear: {
+            near: { type: 'Point', coordinates: [longitude, latitude] },
+            distanceField: 'distanceM',
+            maxDistance: radius,
+            // Inactive stations are never surfaced by discovery.
+            query: { active: true, ...statusFilter },
+            spherical: true,
+          },
+        },
+        { $limit: cap },
+        // One batch for the whole result, so no follow-up getMore round trip.
+        // One larger than the cap: a batch exactly as big as the result leaves
+        // the server unable to tell it is drained, costing an empty getMore.
+      ]).option({ batchSize: cap + 1 });
+
+    let [results, saved] = await Promise.all([readArea(), savedIdsFor(userId)]);
+
+    // Learn about real stations we do not know yet. Discovery never throws and
+    // never writes live status, so a provider outage simply leaves the result
+    // set as whatever we already hold. An unfiltered read has just counted the
+    // active stations in range, which answers the coverage question without a
+    // second query; whenever discovery persisted anything, the area is read
+    // again so the response is exactly what a discover-then-read would return.
     if (discover) {
-      await stationDiscoveryService.ensureCoverage({ latitude, longitude, radiusM: radius });
+      const { discovered = 0 } = await stationDiscoveryService.ensureCoverage({
+        latitude,
+        longitude,
+        radiusM: radius,
+        knownCount: Object.keys(statusFilter).length === 0 ? results.length : undefined,
+      });
+      if (discovered > 0) results = await readArea();
     }
 
-    const results = await Station.aggregate([
-      {
-        $geoNear: {
-          near: { type: 'Point', coordinates: [longitude, latitude] },
-          distanceField: 'distanceM',
-          maxDistance: radius,
-          // Inactive stations are never surfaced by discovery.
-          query: { active: true, ...buildStatusFilter(filters) },
-          spherical: true,
-        },
-      },
-      // A generous cap so a pathological query cannot load the whole collection.
-      { $limit: 500 },
-    ]);
-
-    const saved = await savedIdsFor(userId);
     const now = new Date();
 
     const stations = results.map((station) =>
@@ -198,7 +221,12 @@ const stationService = {
   async getById(stationId, { origin, userId } = {}) {
     if (!mongoose.isValidObjectId(stationId)) throw ApiError.notFound('Station not found');
 
-    const station = await Station.findById(stationId).lean();
+    // Independent reads, issued together: one round trip instead of three.
+    const [station, isSaved, openSupplyEvents] = await Promise.all([
+      Station.findById(stationId).lean(),
+      userId ? SavedStation.exists({ user: userId, station: stationId }) : null,
+      SupplyEvent.find({ station: stationId, endedAt: null }).sort({ startedAt: -1 }).lean(),
+    ]);
     if (!station) throw ApiError.notFound('Station not found');
 
     const distanceM = origin
@@ -208,13 +236,8 @@ const stationService = {
         })
       : null;
 
-    const saved = await savedIdsFor(userId);
-    const openSupplyEvents = await SupplyEvent.find({ station: stationId, endedAt: null })
-      .sort({ startedAt: -1 })
-      .lean();
-
     return {
-      ...serializeStation(station, { distanceM, saved: saved.has(String(station._id)) }),
+      ...serializeStation(station, { distanceM, saved: Boolean(isSaved) }),
       openSupplyEvents,
     };
   },
