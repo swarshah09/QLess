@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Activity, Bell, Gauge, MapPin, Navigation2 } from 'lucide-react';
+import { Activity, Bell, Gauge, LogIn, MapPin, Navigation2, UserPlus } from 'lucide-react';
 import { Logo } from '@/components/ui/Logo';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { AuthSheet } from '@/features/auth/AuthSheet';
 import { useAuth } from '@/hooks/AuthContext';
 
 // Live-feeling snapshots — the hero card ticks through these so the queue
@@ -24,6 +24,7 @@ export default function LandingPage() {
 
   const [idx, setIdx] = useState(0);
   const [bump, setBump] = useState(false);
+  const [authSheet, setAuthSheet] = useState<'signin' | 'signup' | null>(null);
   const timer = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
@@ -145,12 +146,24 @@ export default function LandingPage() {
         <Button size="lg" block onClick={findNearMe} data-testid="find-cng-cta">
           <Navigation2 size={18} /> Find CNG Near Me
         </Button>
-        <Link href="/login" style={{ display: 'block' }}>
-          <Button variant="ghost" block data-testid="login-cta">
-            Login
+        {/* First-time visitors look for "sign up", returning ones for "sign in",
+            so both are offered side by side. */}
+        <div className="btn-row">
+          <Button variant="secondary" onClick={() => setAuthSheet('signup')} data-testid="signup-cta">
+            <UserPlus size={18} /> Sign up
           </Button>
-        </Link>
+          <Button variant="ghost" onClick={() => setAuthSheet('signin')} data-testid="login-cta">
+            <LogIn size={18} /> Sign in
+          </Button>
+        </div>
       </div>
+
+      {/* Signing in/up flips `user`, and the effect above then routes to /app/home. */}
+      <AuthSheet
+        open={authSheet !== null}
+        initialMode={authSheet ?? 'signin'}
+        onClose={() => setAuthSheet(null)}
+      />
     </main>
   );
 }

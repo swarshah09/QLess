@@ -139,7 +139,10 @@ export default function HomePage() {
           </div>
         </div>
 
-        <div style={{ padding: '0 16px 8px' }}>
+        {/* The bottom nav is absolutely positioned over the scroll box, so the
+            list needs its height as bottom padding or the last card stays
+            hidden behind it. */}
+        <div style={{ padding: '0 16px calc(var(--nav-h) + 20px)' }}>
           {error ? (
             <ErrorState onRetry={load} />
           ) : stations === null ? (
